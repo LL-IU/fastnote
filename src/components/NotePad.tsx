@@ -139,8 +139,10 @@ export function NotePad({
   const [tileRenderMarkdown, setTileRenderMarkdown] = useState(false);
   const [tileDoubleClickToEdit, setTileDoubleClickToEdit] = useState(false);
   const [tileSaveReturnsToPin, setTileSaveReturnsToPin] = useState(false);
-  // 小窗置顶状态（置顶与置底互斥；磁贴模式恒为置顶）
+  // 小窗钉状态：置顶 / 置底 互斥，两者皆否为「默认」。
+  // 转为磁贴时沿用该状态（置顶→磁贴置顶，置底→磁贴置底）。
   const [pinnedTop, setPinnedTop] = useState(false);
+  const [pinnedBottom, setPinnedBottom] = useState(false);
   const [tileColor, setTileColor] = useState(() =>
     resolveTileColor("system", normalizeTileColor(initialTileColor)),
   );
@@ -225,6 +227,7 @@ export function NotePad({
           // 应用「小窗默认置顶」设置（仅小窗模式；磁贴恒为置顶）
           const topDefault = loadedConfig.notepadAlwaysOnTop ?? false;
           setPinnedTop(topDefault);
+          setPinnedBottom(false);
           if (topDefault && initialSurfaceMode !== "tile") {
             void setCurrentWindowAlwaysOnTop(true).catch(() => undefined);
           }
@@ -297,6 +300,7 @@ export function NotePad({
       if (event.payload.notepadAlwaysOnTop != null && surfaceModeRef.current !== "tile") {
         const top = event.payload.notepadAlwaysOnTop;
         setPinnedTop(top);
+        setPinnedBottom(false);
         void setCurrentWindowAlwaysOnTop(top).catch(() => undefined);
       }
     });
@@ -403,6 +407,31 @@ export function NotePad({
 
   const tileNoteId = editingNoteId ?? initialNoteId ?? "";
 
+  /**
+   * 按钉状态应用窗口层级：
+   * - "top"    → 置顶
+   * - "bottom" → 取消置顶 + 置于 Z 序最底
+   * - "none"   → 取消置顶（磁贴模式下回退为置顶，保持「钉桌面」语义）
+   */
+  const applyPinState = useCallback(
+    async (pin: "top" | "bottom" | "none", defaultAlwaysOnTop: boolean) => {
+      if (pin === "top") {
+        await setCurrentWindowAlwaysOnTop(true);
+      } else if (pin === "bottom") {
+        await setCurrentWindowAlwaysOnTop(false);
+        await setCurrentWindowBottom();
+      } else {
+        await setCurrentWindowAlwaysOnTop(defaultAlwaysOnTop);
+      }
+    },
+    [],
+  );
+
+  const currentPinState = useCallback(
+    (): "top" | "bottom" | "none" => (pinnedTop ? "top" : pinnedBottom ? "bottom" : "none"),
+    [pinnedTop, pinnedBottom],
+  );
+
   const switchSurfaceMode = useCallback(
     async (nextMode: NoteSurfaceMode) => {
       const unpinnedNoteId = tileSurfaceModeUnpinNoteId(surfaceMode, nextMode, tileNoteId);
@@ -415,16 +444,15 @@ export function NotePad({
         const currentBounds = await getCurrentWindowBounds();
         const targetBounds = getSurfaceTargetBounds(nextMode, currentBounds);
 
-        if (nextMode === "tile") {
-          await setCurrentWindowAlwaysOnTop(true);
-        }
+        // 转磁贴时沿用小窗的置顶/置底状态；转回小窗时恢复小窗的钉状态
+        await applyPinState(currentPinState(), nextMode === "tile");
 
         await animateCurrentWindowBounds(targetBounds);
       } catch (error) {
         showToast(getErrorMessage(error));
       }
     },
-    [surfaceMode, tileNoteId],
+    [surfaceMode, tileNoteId, applyPinState, currentPinState],
   );
 
   useEffect(() => {
@@ -442,8 +470,9 @@ export function NotePad({
 
   useEffect(() => {
     if (surfaceMode !== "tile") return;
-    void setCurrentWindowAlwaysOnTop(true).catch(() => undefined);
-  }, [surfaceMode]);
+    // 兜底：任何进入磁贴模式的路径都按小窗钉状态设置层级
+    void applyPinState(currentPinState(), true).catch(() => undefined);
+  }, [surfaceMode, applyPinState, currentPinState]);
 
   const handleSave = useCallback(
     async ({ isAutoSave = false }: { isAutoSave?: boolean } = {}) => {
@@ -571,17 +600,19 @@ export function NotePad({
     try {
       await setCurrentWindowAlwaysOnTop(next);
       setPinnedTop(next);
+      if (next) setPinnedBottom(false);
     } catch (error) {
       showToast(getErrorMessage(error));
     }
   }, [pinnedTop]);
 
-  // 将小窗置于 Z 序最底层
+  // 将小窗置于 Z 序最底层（置顶与置底互斥）
   const handlePinBottom = useCallback(async () => {
     try {
       await setCurrentWindowAlwaysOnTop(false);
       await setCurrentWindowBottom();
       setPinnedTop(false);
+      setPinnedBottom(true);
     } catch (error) {
       showToast(getErrorMessage(error));
     }
@@ -817,7 +848,11 @@ export function NotePad({
 
                 <button
                   onClick={() => void handlePinBottom()}
-                  className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all duration-200 cursor-pointer"
+                  className={`w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-200 cursor-pointer ${
+                    pinnedBottom
+                      ? "text-bamboo bg-bamboo-mist/60"
+                      : "text-ink-ghost hover:text-ink-faint hover:bg-paper-warm"
+                  }`}
                   title={t("notepad.tooltip.pinBottom", { defaultValue: "置底" })}
                 >
                   <svg

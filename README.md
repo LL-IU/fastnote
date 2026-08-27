@@ -2,7 +2,7 @@
 
 **快速启动、后台静默的 Windows 桌面便签软件**
 
-版本:**0.1.0** · 许可:**MIT**
+版本:**0.1.1** · 许可:**MIT**
 
 fastnote 是一款轻量、随呼随用的桌面便签工具,基于开源项目 [floral-notepaper](https://github.com/Achilng/floral-notepaper)(Tauri 2 + React 19 + Rust)深度改造而来:保留了其秒开的小窗窗口池与优雅的编辑体验,移除了更新器、商店/镜像分发等与本项目无关的部分,并针对"快速、静默、桌面固定"的定位做了定制。
 
@@ -49,6 +49,13 @@ npm run tauri build --no-bundle     # 产出 src-tauri/target/release/fastnote.e
 - 移除:应用内更新/自动更新、Mirror酱 CDK、Microsoft Store/MSIX 分发、跨平台(macOS/Linux)打包、贡献者展示、原项目品牌与文档
 - 调整:小窗默认不再置顶(新增"小窗默认置顶"设置);新增小窗**置顶/置底**按钮;打包目标收敛为 Windows 便携 exe
 - 更名:应用名 `fastnote`,版本 `0.1.0`
+
+## 版本记录
+
+- **0.1.1**(当前)— 小窗 ↔ 磁贴**置顶/置底状态继承**:小窗设置置顶,转磁贴后仍置顶;小窗设置置底,转磁贴后仍置底;转回小窗自动恢复原状态;发布便携版 exe
+- **0.1.0** — 初版:基于 floral-notepaper 深度定制(更名 fastnote、移除更新器/商店/跨平台、小窗默认不再置顶、新增小窗置顶/置底按钮、Windows 便携版)
+
+> 各版本详细修改记录见 [迭代说明.md](迭代说明.md)。
 
 ## 许可证
 
