@@ -246,7 +246,6 @@
         "system": "快捷键 {{shortcut}} 与系统快捷键冲突",
         "unknown": "检测完成，但释放临时快捷键失败"
       },
-      "forQuickNote": "用于打开快捷记录小窗",
       "needsModifier": "快捷键需要包含 Ctrl、Option/Alt 或 Command/Meta",
       "notSet": "未设置",
       "pressHint": "按下快捷键；按 Delete 清空。"
@@ -269,7 +268,7 @@
     "renderHtmlMarkdown": "允许 HTML 标签渲染",
     "splitScrollSync": "分栏同步滚动",
     "title": "应用设置",
-    "visibilityShortcut": "显示/隐藏窗口快捷键",
+    "visibilityShortcut": "打开主窗口并打开桌面磁贴",
     "background": {
       "label": "背景图片",
       "default": "默认背景",
@@ -285,6 +284,23 @@
         "contain": "完整",
         "repeat": "平铺"
       }
+    },
+    "webdav": {
+      "label": "WebDAV 同步（坚果云）",
+      "enable": "启用 WebDAV 同步",
+      "server": "服务器地址",
+      "user": "账号",
+      "pass": "应用密码",
+      "remotePath": "远端文件路径",
+      "test": "测试连接",
+      "syncNow": "立即同步",
+      "restore": "从云端恢复",
+      "restoreConfirm": "将从云端下载并覆盖本机所有笔记，此操作不可撤销，确定继续？",
+      "lastSync": "上次同步：",
+      "never": "从未同步",
+      "testing": "连接测试中…",
+      "syncing": "同步中…",
+      "statusError": "同步失败：{{msg}}"
     }
   },
   "tile": {

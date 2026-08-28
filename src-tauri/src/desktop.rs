@@ -1025,23 +1025,37 @@ fn clear_hidden_window_state(app: &AppHandle) {
     }
 }
 
+/// 显示/隐藏主窗口 + 桌面磁贴：
+/// - 有可见窗口时：隐藏主窗口与所有磁贴窗口（记录本次隐藏的窗口）
+/// - 全部隐藏时：打开主窗口，并重新显示已钉在桌面的磁贴
 fn toggle_app_visibility(app: &AppHandle) {
     let Some(state) = app.try_state::<RuntimeState>() else {
         return;
     };
 
+    // 恢复上次隐藏的窗口（主窗口 + 磁贴），并确保主窗口可见
     if let Some(labels) = state.take_hidden_window_labels() {
         let mut focus_target = None;
+        let mut shown_main = false;
         for label in &labels {
             if let Some(window) = app.get_webview_window(label) {
                 let _ = window.unminimize();
                 let _ = window.show();
+                if label == MAIN_WINDOW_LABEL {
+                    shown_main = true;
+                }
                 if focus_target.is_none() || label == MAIN_WINDOW_LABEL {
                     focus_target = Some(label.clone());
                 }
             }
         }
-
+        // 主窗口不在本次恢复列表时也一并显示（打开主窗口）
+        if !shown_main {
+            if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                let _ = window.show();
+                focus_target = Some(MAIN_WINDOW_LABEL.to_string());
+            }
+        }
         if let Some(label) = focus_target {
             if let Some(window) = app.get_webview_window(&label) {
                 let _ = window.set_focus();
@@ -1050,17 +1064,27 @@ fn toggle_app_visibility(app: &AppHandle) {
         return;
     }
 
+    // 隐藏：主窗口 + 所有磁贴窗口
     let mut labels = Vec::new();
     for (label, window) in app.webview_windows() {
-        if window.is_visible().unwrap_or(false) {
+        if (label == MAIN_WINDOW_LABEL || label.starts_with("tile-"))
+            && window.is_visible().unwrap_or(false)
+        {
             labels.push(label.clone());
             let _ = window.hide();
         }
     }
 
     if labels.is_empty() {
+        // 均不可见：打开主窗口 + 打开已钉在桌面的磁贴
         if let Err(error) = show_main_window(app) {
             eprintln!("failed to show main window from visibility toggle: {error}");
+        }
+        for (label, window) in app.webview_windows() {
+            if label.starts_with("tile-") {
+                let _ = window.unminimize();
+                let _ = window.show();
+            }
         }
         return;
     }
@@ -1787,7 +1811,8 @@ fn open_tile_window_now(
             title: locales::tile_window_title(locale).to_string(),
             specs,
             decorations: false,
-            always_on_top: true,
+            // 磁贴默认不置顶（与「转磁贴不改变层级」一致），置顶由用户手动设置
+            always_on_top: false,
             shadow: false,
             skip_taskbar: true,
             bounds,

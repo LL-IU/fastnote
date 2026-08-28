@@ -1,6 +1,6 @@
 [package]
 name = "fastnote"
-version = "0.1.1"
+version = "0.1.2"
 description = "A lightweight Windows desktop sticky note app"
 authors = ["fastnote"]
 edition = "2021"
@@ -34,6 +34,12 @@ uuid = { version = "1", features = ["v4", "serde"] }
 tauri-plugin-clipboard-manager = "2"
 trash = "5"
 dirs = "6"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+aes-gcm = "0.10"
+base64 = "0.22"
+rand = "0.8"
+tokio = { version = "1", features = ["time"] }
+http = "1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

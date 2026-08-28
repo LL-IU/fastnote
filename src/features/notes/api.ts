@@ -116,7 +116,7 @@ function shortcutFieldLabel(field: string | undefined, translate: TFunction): st
   }
 
   if (field === "toggleVisibilityShortcut") {
-    return translate("settings.visibilityShortcut", { defaultValue: "显示/隐藏窗口快捷键" });
+    return translate("settings.visibilityShortcut", { defaultValue: "打开主窗口并打开桌面磁贴" });
   }
 
   return null;

@@ -2287,7 +2287,7 @@ mod tests {
             .expect("create note");
 
         let error = store
-            .migrate_data_to(&data_dir.join("notes").join("floral"))
+            .migrate_data_to(&data_dir.join("notes").join("fastnotes"))
             .expect_err("target inside data dir must be rejected");
         assert_eq!(error.code, "unsafePath");
 

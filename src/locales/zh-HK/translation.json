@@ -246,7 +246,6 @@
         "system": "快捷鍵 {{shortcut}} 與系統快捷鍵衝突",
         "unknown": "檢測完成，但釋放臨時快捷鍵失敗"
       },
-      "forQuickNote": "用於開啟快捷記錄小窗",
       "needsModifier": "快捷鍵需要包含 Ctrl、Option/Alt 或 Command/Meta",
       "notSet": "未設定",
       "pressHint": "按下快捷鍵；按 Delete 清除。"
@@ -269,7 +268,7 @@
     "renderHtmlMarkdown": "允許 HTML 標籤渲染",
     "splitScrollSync": "分欄同步捲動",
     "title": "應用程式設定",
-    "visibilityShortcut": "顯示／隱藏視窗快捷鍵",
+    "visibilityShortcut": "開啟主視窗並開啟桌面磁貼",
     "background": {
       "label": "背景圖片",
       "default": "預設背景",
@@ -285,6 +284,23 @@
         "contain": "完整",
         "repeat": "平鋪"
       }
+    },
+    "webdav": {
+      "label": "WebDAV 同步（堅果雲）",
+      "enable": "啟用 WebDAV 同步",
+      "server": "伺服器地址",
+      "user": "帳號",
+      "pass": "應用程式密碼",
+      "remotePath": "遠端檔案路徑",
+      "test": "測試連線",
+      "syncNow": "立即同步",
+      "restore": "從雲端還原",
+      "restoreConfirm": "將從雲端下載並覆蓋本機所有筆記，此操作不可復原，確定繼續？",
+      "lastSync": "上次同步：",
+      "never": "從未同步",
+      "testing": "連線測試中…",
+      "syncing": "同步中…",
+      "statusError": "同步失敗：{{msg}}"
     }
   },
   "tile": {

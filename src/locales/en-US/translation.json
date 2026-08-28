@@ -246,7 +246,6 @@
         "system": "Shortcut {{shortcut}} conflicts with a system shortcut",
         "unknown": "Check completed, but failed to release temporary shortcut"
       },
-      "forQuickNote": "Opens the Quick Note window",
       "needsModifier": "Shortcut must include Ctrl, Option/Alt, or Command/Meta",
       "notSet": "Not set",
       "pressHint": "Press shortcut...; press Delete to clear."
@@ -269,7 +268,7 @@
     "renderHtmlMarkdown": "Render HTML tags in Markdown",
     "splitScrollSync": "Split view scroll sync",
     "title": "Settings",
-    "visibilityShortcut": "Show/Hide window shortcut",
+    "visibilityShortcut": "Open main window and desktop tiles",
     "background": {
       "label": "Background image",
       "default": "Default background",
@@ -285,6 +284,23 @@
         "contain": "Contain",
         "repeat": "Repeat"
       }
+    },
+    "webdav": {
+      "label": "WebDAV Sync (Jianguoyun)",
+      "enable": "Enable WebDAV sync",
+      "server": "Server URL",
+      "user": "Account",
+      "pass": "App password",
+      "remotePath": "Remote file path",
+      "test": "Test connection",
+      "syncNow": "Sync now",
+      "restore": "Restore from cloud",
+      "restoreConfirm": "This will download from the cloud and overwrite ALL local notes. Cannot be undone. Continue?",
+      "lastSync": "Last sync: ",
+      "never": "Never synced",
+      "testing": "Testing connection…",
+      "syncing": "Syncing…",
+      "statusError": "Sync failed: {{msg}}"
     }
   },
   "tile": {

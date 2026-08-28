@@ -269,7 +269,7 @@ fn config_save(app: AppHandle, config: AppConfig) -> Result<AppConfig, AppError>
 #[tauri::command]
 fn config_migrate_data_dir(app: AppHandle, new_data_dir: String) -> Result<AppConfig, AppError> {
     let store = default_store()?;
-    let new_path = PathBuf::from(&new_data_dir).join("floral");
+    let new_path = PathBuf::from(&new_data_dir).join("fastnotes");
     let new_store = store.migrate_data_to(&new_path)?;
 
     let scope = app.asset_protocol_scope();
@@ -458,6 +458,8 @@ pub fn run() {
                 let _ = scope.allow_directory(data.join("backgrounds"), true);
             }
             desktop::setup_desktop(app)?;
+            // 启动 Rust 端后台 WebDAV 同步轮询（仅启用时执行同步）
+            services::webdav::start_webdav_sync_poll(app.handle());
             Ok(())
         })
         .on_window_event(desktop::handle_window_event)
@@ -496,7 +498,13 @@ pub fn run() {
             open_tile_window,
             toggle_tile_window,
             open_note_in_editor,
-            take_startup_file
+            take_startup_file,
+            services::webdav::webdav_set_config,
+            services::webdav::webdav_get_config,
+            services::webdav::webdav_test,
+            services::webdav::webdav_sync_now,
+            services::webdav::webdav_restore,
+            services::webdav::webdav_status,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

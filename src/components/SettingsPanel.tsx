@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { checkGlobalShortcut, chooseBackgroundImage } from "../features/settings/api";
 import type {
@@ -18,6 +18,13 @@ import {
 import { useShortcutRecorder } from "../features/settings/useShortcutRecorder";
 import { DEFAULT_TILE_COLOR, normalizeTileColor } from "../features/settings/tileColor";
 import { applyTheme, watchSystemTheme } from "../features/settings/theme";
+import {
+  webdavGetConfig,
+  webdavRestore,
+  webdavSetConfig,
+  webdavSyncNow,
+  webdavTest,
+} from "../features/settings/webdav";
 import { LOCALE_OPTIONS } from "../locales/locale-whitelist";
 import { SlidingButtonGroup } from "./SlidingButtonGroup";
 
@@ -247,7 +254,7 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
           </div>
           <div className="space-y-1.5">
             <label className="block text-[11px] font-body text-ink-faint/70 px-0.5">
-              {t("settings.visibilityShortcut", { defaultValue: "显示/隐藏窗口快捷键" })}
+              {t("settings.visibilityShortcut", { defaultValue: "打开主窗口并打开桌面磁贴" })}
             </label>
             <ShortcutRecorder
               value={config.toggleVisibilityShortcut}
@@ -461,6 +468,8 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
           />
         </section>
 
+        <WebdavSettings />
+
         <section className="pt-2 border-t border-paper-deep/25">
           <p className="text-[10px] leading-relaxed text-ink-ghost/75">
             <span>
@@ -488,6 +497,236 @@ interface ToggleRowProps {
   label: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
+}
+
+/** WebDAV（坚果云）同步设置 */
+function WebdavSettings() {
+  const { t } = useTranslation();
+  const [enabled, setEnabled] = useState(false);
+  const [url, setUrl] = useState("");
+  const [user, setUser] = useState("");
+  const [pass, setPass] = useState("");
+  const [remotePath, setRemotePath] = useState("/fastnote/fastnote.json");
+  const [lastSync, setLastSync] = useState(0);
+  const [busy, setBusy] = useState<"" | "test" | "sync">("");
+  const [status, setStatus] = useState<string>("");
+
+  const load = useCallback(async () => {
+    try {
+      const cfg = await webdavGetConfig();
+      setEnabled(cfg.enabled);
+      setUrl(cfg.url);
+      setUser(cfg.user);
+      setRemotePath(cfg.remotePath || "/fastnote/fastnote.json");
+      setLastSync(cfg.lastSync);
+    } catch (error) {
+      setStatus(String(error));
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const save = useCallback(async () => {
+    const cfg: Parameters<typeof webdavSetConfig>[0] = { enabled };
+    if (url) cfg.url = url;
+    if (user) cfg.user = user;
+    if (remotePath) cfg.remotePath = remotePath;
+    // 仅当用户输入了密码才更新（留空表示保留已保存密码）
+    if (pass) cfg.pass = pass;
+    await webdavSetConfig(cfg);
+    setPass("");
+    await load();
+  }, [enabled, url, user, remotePath, pass, load]);
+
+  const onToggle = async (value: boolean) => {
+    setEnabled(value);
+    const cfg: Parameters<typeof webdavSetConfig>[0] = { enabled: value };
+    if (url) cfg.url = url;
+    if (user) cfg.user = user;
+    if (remotePath) cfg.remotePath = remotePath;
+    if (pass) cfg.pass = pass;
+    try {
+      await webdavSetConfig(cfg);
+      setPass("");
+      void load();
+    } catch (error) {
+      setStatus(String(error));
+    }
+  };
+
+  const onTest = async () => {
+    setBusy("test");
+    setStatus(t("settings.webdav.testing", { defaultValue: "连接测试中…" }));
+    try {
+      await save();
+      const msg = await webdavTest({ url, user, pass, remotePath });
+      setStatus(msg);
+    } catch (error) {
+      setStatus(
+        t("settings.webdav.statusError", {
+          defaultValue: "同步失败：{{msg}}",
+          msg: String(error),
+        }),
+      );
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const onSync = async () => {
+    setBusy("sync");
+    setStatus(t("settings.webdav.syncing", { defaultValue: "同步中…" }));
+    try {
+      await save();
+      const msg = await webdavSyncNow({ url, user, pass, remotePath });
+      setStatus(msg);
+      void load();
+    } catch (error) {
+      setStatus(
+        t("settings.webdav.statusError", {
+          defaultValue: "同步失败：{{msg}}",
+          msg: String(error),
+        }),
+      );
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const onRestore = async () => {
+    if (
+      !window.confirm(
+        t("settings.webdav.restoreConfirm", {
+          defaultValue: "将从云端下载并覆盖本机所有笔记，此操作不可撤销，确定继续？",
+        }),
+      )
+    ) {
+      return;
+    }
+    setBusy("sync");
+    setStatus(t("settings.webdav.syncing", { defaultValue: "同步中…" }));
+    try {
+      await save();
+      const msg = await webdavRestore({ url, user, pass, remotePath });
+      setStatus(msg);
+      void load();
+    } catch (error) {
+      setStatus(
+        t("settings.webdav.statusError", {
+          defaultValue: "同步失败：{{msg}}",
+          msg: String(error),
+        }),
+      );
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const formatSyncTime = (ts: number): string => {
+    if (!ts) return t("settings.webdav.never", { defaultValue: "从未同步" });
+    const d = new Date(ts);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  const inputClass =
+    "w-full h-8 px-2.5 rounded-lg bg-paper-warm/70 border border-paper-deep/40 text-[11px] font-mono text-ink-faint truncate";
+  const actionBtnClass =
+    "h-8 px-3 rounded-lg border border-paper-deep/45 text-[11px] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed";
+
+  return (
+    <section className="space-y-2">
+      <label className="block text-[11px] font-body text-ink-faint">
+        {t("settings.webdav.label", { defaultValue: "WebDAV 同步（坚果云）" })}
+      </label>
+
+      <ToggleRow
+        label={t("settings.webdav.enable", { defaultValue: "启用 WebDAV 同步" })}
+        checked={enabled}
+        onChange={(value) => void onToggle(value)}
+      />
+
+      <div className={`space-y-2 ${enabled ? "" : "opacity-50 pointer-events-none"}`}>
+        <label className="block text-[10px] font-body text-ink-ghost">
+          {t("settings.webdav.server", { defaultValue: "服务器地址" })}
+        </label>
+        <input
+          type="text"
+          className={inputClass}
+          placeholder="https://dav.jianguoyun.com/dav/"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+        />
+
+        <label className="block text-[10px] font-body text-ink-ghost">
+          {t("settings.webdav.user", { defaultValue: "账号" })}
+        </label>
+        <input
+          type="text"
+          className={inputClass}
+          value={user}
+          onChange={(e) => setUser(e.target.value)}
+        />
+
+        <label className="block text-[10px] font-body text-ink-ghost">
+          {t("settings.webdav.pass", { defaultValue: "应用密码" })}
+        </label>
+        <input
+          type="password"
+          autoComplete="new-password"
+          className={inputClass}
+          value={pass}
+          onChange={(e) => setPass(e.target.value)}
+        />
+
+        <label className="block text-[10px] font-body text-ink-ghost">
+          {t("settings.webdav.remotePath", { defaultValue: "远端文件路径" })}
+        </label>
+        <input
+          type="text"
+          className={inputClass}
+          value={remotePath}
+          onChange={(e) => setRemotePath(e.target.value)}
+        />
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => void onTest()}
+            disabled={busy !== "" || !url || !user}
+            className={`${actionBtnClass} flex-1 text-ink-faint hover:text-bamboo hover:bg-bamboo-mist/50`}
+          >
+            {t("settings.webdav.test", { defaultValue: "测试连接" })}
+          </button>
+          <button
+            type="button"
+            onClick={() => void onSync()}
+            disabled={busy !== "" || !enabled}
+            className={`${actionBtnClass} flex-1 text-cloud bg-bamboo hover:bg-bamboo-light`}
+          >
+            {t("settings.webdav.syncNow", { defaultValue: "立即同步" })}
+          </button>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => void onRestore()}
+          disabled={busy !== "" || !enabled}
+          className={`${actionBtnClass} w-full text-red-400 hover:bg-red-400/10`}
+        >
+          {t("settings.webdav.restore", { defaultValue: "从云端恢复" })}
+        </button>
+
+        <p className="text-[10px] leading-relaxed text-ink-ghost">
+          {t("settings.webdav.lastSync", { defaultValue: "上次同步：" })}
+          {formatSyncTime(lastSync)}
+        </p>
+        {status ? <p className="text-[10px] leading-relaxed text-ink-soft">{status}</p> : null}
+      </div>
+    </section>
+  );
 }
 
 function ToggleRow({ label, checked, onChange }: ToggleRowProps) {
@@ -558,7 +797,8 @@ function ShortcutRecorder({ value, onChange }: ShortcutRecorderProps) {
     "idle",
   );
   const [checkMsg, setCheckMsg] = useState<ShortcutMsg>({
-    key: "settings.shortcut.forQuickNote",
+    // 默认不显示任何描述文字
+    raw: "",
   });
   const shortcutCheckRequestId = useRef(0);
   const isMounted = useRef(true);

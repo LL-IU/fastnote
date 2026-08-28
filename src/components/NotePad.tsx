@@ -408,24 +408,20 @@ export function NotePad({
   const tileNoteId = editingNoteId ?? initialNoteId ?? "";
 
   /**
-   * 按钉状态应用窗口层级：
+   * 按钉状态应用窗口层级（仅显式设置的置顶/置底才会改动层级）：
    * - "top"    → 置顶
    * - "bottom" → 取消置顶 + 置于 Z 序最底
-   * - "none"   → 取消置顶（磁贴模式下回退为置顶，保持「钉桌面」语义）
+   * - "none"   → 默认：保持现状，不调用 setAlwaysOnTop / setWindowBottom
    */
-  const applyPinState = useCallback(
-    async (pin: "top" | "bottom" | "none", defaultAlwaysOnTop: boolean) => {
-      if (pin === "top") {
-        await setCurrentWindowAlwaysOnTop(true);
-      } else if (pin === "bottom") {
-        await setCurrentWindowAlwaysOnTop(false);
-        await setCurrentWindowBottom();
-      } else {
-        await setCurrentWindowAlwaysOnTop(defaultAlwaysOnTop);
-      }
-    },
-    [],
-  );
+  const applyPinState = useCallback(async (pin: "top" | "bottom" | "none") => {
+    if (pin === "top") {
+      await setCurrentWindowAlwaysOnTop(true);
+    } else if (pin === "bottom") {
+      await setCurrentWindowAlwaysOnTop(false);
+      await setCurrentWindowBottom();
+    }
+    // "none"：不改变页面层级
+  }, []);
 
   const currentPinState = useCallback(
     (): "top" | "bottom" | "none" => (pinnedTop ? "top" : pinnedBottom ? "bottom" : "none"),
@@ -444,8 +440,8 @@ export function NotePad({
         const currentBounds = await getCurrentWindowBounds();
         const targetBounds = getSurfaceTargetBounds(nextMode, currentBounds);
 
-        // 转磁贴时沿用小窗的置顶/置底状态；转回小窗时恢复小窗的钉状态
-        await applyPinState(currentPinState(), nextMode === "tile");
+        // 转磁贴/转回小窗：仅显式设置的置顶/置底会改动层级，默认保持现状
+        await applyPinState(currentPinState());
 
         await animateCurrentWindowBounds(targetBounds);
       } catch (error) {
@@ -470,8 +466,8 @@ export function NotePad({
 
   useEffect(() => {
     if (surfaceMode !== "tile") return;
-    // 兜底：任何进入磁贴模式的路径都按小窗钉状态设置层级
-    void applyPinState(currentPinState(), true).catch(() => undefined);
+    // 兜底：进入磁贴模式时按钉状态设置层级（默认状态不改变层级）
+    void applyPinState(currentPinState()).catch(() => undefined);
   }, [surfaceMode, applyPinState, currentPinState]);
 
   const handleSave = useCallback(
@@ -786,13 +782,13 @@ export function NotePad({
         <div className={padSurfaceClassName} data-surface-mode={surfaceMode}>
           <>
             <div
-              className="flex items-center justify-between px-4 pt-3 pb-0 cursor-default"
+              className="flex items-center justify-between px-2.5 pt-3 pb-0 cursor-default"
               onMouseDown={handleDrag}
             >
-              <div className="flex items-center gap-0.5">
+              <div className="flex shrink-0 items-center gap-0.5">
                 <button
                   onClick={resetDraft}
-                  className={`relative px-3.5 py-1.5 text-[13px] rounded-t-lg transition-all duration-200 cursor-pointer ${
+                  className={`relative whitespace-nowrap px-2.5 py-1 text-[11px] rounded-t-lg transition-all duration-200 cursor-pointer ${
                     mode === "new"
                       ? "text-bamboo font-medium"
                       : "text-ink-ghost hover:text-ink-faint"
@@ -800,12 +796,12 @@ export function NotePad({
                 >
                   {editingNoteId ? tabLabels.edit : tabLabels.new}
                   {mode === "new" && (
-                    <div className="absolute bottom-0 left-3 right-3 h-[2px] bg-bamboo rounded-full" />
+                    <div className="absolute bottom-0 left-2.5 right-2.5 h-[2px] bg-bamboo rounded-full" />
                   )}
                 </button>
                 <button
                   onClick={() => setMode("open")}
-                  className={`relative px-3.5 py-1.5 text-[13px] rounded-t-lg transition-all duration-200 cursor-pointer ${
+                  className={`relative whitespace-nowrap px-2.5 py-1 text-[11px] rounded-t-lg transition-all duration-200 cursor-pointer ${
                     mode === "open"
                       ? "text-bamboo font-medium"
                       : "text-ink-ghost hover:text-ink-faint"
@@ -813,12 +809,12 @@ export function NotePad({
                 >
                   {tabLabels.open}
                   {mode === "open" && (
-                    <div className="absolute bottom-0 left-3 right-3 h-[2px] bg-bamboo rounded-full" />
+                    <div className="absolute bottom-0 left-2.5 right-2.5 h-[2px] bg-bamboo rounded-full" />
                   )}
                 </button>
               </div>
 
-              <div className="ml-auto flex items-center gap-1.5">
+              <div className="ml-auto flex shrink-0 items-center gap-1">
                 <button
                   onClick={() => void togglePinTop()}
                   className={`w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-200 cursor-pointer ${

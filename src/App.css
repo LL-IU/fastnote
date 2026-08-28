@@ -28,7 +28,7 @@
   --color-paper: #f6f3ec;
   --color-paper-warm: #f0ebe0;
   --color-paper-deep: #e8e1d3;
-  --color-ink: #1a1a18;
+  --color-ink: #000000;
   --color-ink-soft: #3d3d38;
   --color-ink-faint: #8a8a80;
   --color-ink-ghost: #b8b8ae;
@@ -61,7 +61,7 @@
   --color-paper: #222120;
   --color-paper-warm: #2c2a27;
   --color-paper-deep: #3c3935;
-  --color-ink: #e5e1da;
+  --color-ink: #ffffff;
   --color-ink-soft: #b5b1a8;
   --color-ink-faint: #928f87;
   --color-ink-ghost: #706d67;
