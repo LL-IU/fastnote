@@ -120,7 +120,7 @@ function shortcutFieldLabel(field: string | undefined, translate: TFunction): st
   }
 
   if (field === "showTilesShortcut") {
-    return translate("settings.showTilesShortcut", { defaultValue: "显示桌面磁贴" });
+    return translate("settings.showTilesShortcut", { defaultValue: "置顶/置底磁贴" });
   }
 
   return null;

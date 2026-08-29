@@ -270,7 +270,7 @@
     "splitScrollSync": "分欄同步捲動",
     "title": "應用程式設定",
     "visibilityShortcut": "顯示／隱藏主視窗",
-    "showTilesShortcut": "顯示桌面磁貼",
+    "showTilesShortcut": "置頂/置底磁貼",
     "background": {
       "label": "背景圖片",
       "default": "預設背景",

@@ -270,7 +270,7 @@
     "splitScrollSync": "分栏同步滚动",
     "title": "应用设置",
     "visibilityShortcut": "显示/隐藏主窗口",
-    "showTilesShortcut": "显示桌面磁贴",
+    "showTilesShortcut": "置顶/置底磁贴",
     "background": {
       "label": "背景图片",
       "default": "默认背景",

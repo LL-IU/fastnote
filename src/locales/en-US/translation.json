@@ -270,7 +270,7 @@
     "splitScrollSync": "Split view scroll sync",
     "title": "Settings",
     "visibilityShortcut": "Show/Hide main window",
-    "showTilesShortcut": "Show desktop tiles",
+    "showTilesShortcut": "Pin tiles top/bottom",
     "background": {
       "label": "Background image",
       "default": "Default background",

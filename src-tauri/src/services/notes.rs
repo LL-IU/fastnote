@@ -1694,7 +1694,7 @@ fn default_note_surface_auto_save() -> bool {
 }
 
 fn default_tile_color() -> String {
-    "#f6f3ec".into()
+    "#faf7ef".into()
 }
 
 fn default_tile_color_mode() -> String {
@@ -1902,7 +1902,7 @@ mod tests {
         assert_eq!(default_config.global_shortcut, "Ctrl+Space");
         assert!(default_config.note_auto_save);
         assert!(default_config.note_surface_auto_save);
-        assert_eq!(default_config.tile_color, "#f6f3ec");
+        assert_eq!(default_config.tile_color, "#faf7ef");
         assert_eq!(default_config.tile_color_mode, "system");
         assert!(!default_config.tile_double_click_to_edit);
         assert!(!default_config.tile_save_returns_to_pin);
@@ -2005,7 +2005,7 @@ mod tests {
 
         assert!(loaded.note_auto_save);
         assert!(loaded.note_surface_auto_save);
-        assert_eq!(loaded.tile_color, "#f6f3ec");
+        assert_eq!(loaded.tile_color, "#faf7ef");
         assert_eq!(loaded.tile_color_mode, "system");
         assert!(!loaded.tile_double_click_to_edit);
         assert!(!loaded.tile_save_returns_to_pin);

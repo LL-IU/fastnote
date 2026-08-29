@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { invoke } from "@tauri-apps/api/core";
 import { createNote, getErrorMessage, getNote, listNotes, updateNote } from "../features/notes/api";
 import { useImagePaste } from "../features/images/useImagePaste";
 import { useImageBaseDir } from "../features/images/useImageBaseDir";
@@ -152,6 +153,8 @@ export function NotePad({
   const tileDragIntentRef = useRef<{ x: number; y: number } | null>(null);
   const windowLabelRef = useRef("");
   const statusRef = useRef<NotePadStatus>("empty");
+  const editingNoteIdRef = useRef(editingNoteId);
+  editingNoteIdRef.current = editingNoteId;
   const contentValueRef = useRef(content);
   contentValueRef.current = content;
   const titleValueRef = useRef(title);
@@ -250,11 +253,20 @@ export function NotePad({
   useEffect(() => {
     const unlisten = listen("notes-changed", () => {
       void refreshNotes().catch(() => undefined);
+      // 磁贴模式为只读展示：笔记在别处（主窗口等）被修改保存后，重新拉取内容保持同步
+      if (surfaceModeRef.current === "tile" && !dormantRef.current) {
+        const id = editingNoteIdRef.current ?? initialNoteId;
+        if (id) {
+          void getNote(id)
+            .then(applyNote)
+            .catch(() => undefined);
+        }
+      }
     });
     return () => {
       void unlisten.then((fn) => fn());
     };
-  }, [refreshNotes]);
+  }, [refreshNotes, applyNote, initialNoteId]);
 
   useEffect(() => {
     if (isStandby.current) return;
@@ -434,6 +446,15 @@ export function NotePad({
       setSurfaceMode(nextMode);
       if (unpinnedNoteId) {
         void emitTileWindowUnpinned(unpinnedNoteId).catch(() => undefined);
+      }
+
+      // 上报磁贴模式：供「显示桌面磁贴」快捷键定位本窗口（小窗转换而来的磁贴）
+      const myLabel = windowLabelRef.current;
+      if (myLabel) {
+        void invoke("set_notepad_tile_mode", {
+          label: myLabel,
+          tile: nextMode === "tile",
+        }).catch(() => undefined);
       }
 
       try {

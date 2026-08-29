@@ -369,6 +369,13 @@ async fn open_note_in_editor(app: AppHandle, note_id: String) -> Result<(), AppE
     Ok(())
 }
 
+/// 前端上报 notepad 窗口的磁贴模式状态（小窗 ↔ 磁贴切换时调用）
+#[tauri::command]
+fn set_notepad_tile_mode(app: AppHandle, label: String, tile: bool) -> Result<(), String> {
+    desktop::set_notepad_tile_mode(&app, &label, tile);
+    Ok(())
+}
+
 #[tauri::command]
 fn take_startup_file() -> Option<String> {
     desktop::take_startup_file()
@@ -499,6 +506,7 @@ pub fn run() {
             toggle_tile_window,
             open_note_in_editor,
             take_startup_file,
+            set_notepad_tile_mode,
             services::webdav::webdav_set_config,
             services::webdav::webdav_get_config,
             services::webdav::webdav_test,

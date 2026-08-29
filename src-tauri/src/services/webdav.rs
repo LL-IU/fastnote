@@ -559,6 +559,7 @@ pub fn start_webdav_sync_poll(_app: &AppHandle) {
 // ──────────────── Tauri Commands ────────────────
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WebdavConfigPayload {
     pub enabled: Option<bool>,
     pub url: Option<String>,
@@ -626,6 +627,7 @@ pub async fn webdav_get_config() -> Result<serde_json::Value, String> {
 
 /// 测试连接请求参数（使用当前输入框的临时值，不依赖已保存配置）
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WebdavTestPayload {
     pub url: String,
     pub user: String,

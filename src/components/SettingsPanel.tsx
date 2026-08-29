@@ -243,7 +243,7 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
           </div>
           <div className="space-y-1.5">
             <label className="block text-[11px] font-body text-ink-faint/70 px-0.5">
-              {t("settings.showTilesShortcut", { defaultValue: "显示桌面磁贴" })}
+              {t("settings.showTilesShortcut", { defaultValue: "置顶/置底磁贴" })}
             </label>
             <ShortcutRecorder
               value={config.showTilesShortcut}
@@ -333,7 +333,7 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
                 type="text"
                 value={config.tileColor}
                 onChange={(event) => setConfigValue("tileColor", event.target.value)}
-                placeholder="#f6f3ec"
+                placeholder="#faf7ef"
                 spellCheck={false}
                 className="min-w-0 flex-1 h-8 px-2.5 rounded-lg bg-paper-warm/70 border border-paper-deep/40 text-[12px] font-mono text-ink-soft outline-none"
               />

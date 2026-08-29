@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(target_os = "macos")]
 use std::sync::OnceLock;
 use std::{
+    collections::HashSet,
     error::Error,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -546,6 +547,8 @@ struct WindowOpenOptions {
 #[derive(Default)]
 struct RuntimeState {
     is_exiting: AtomicBool,
+    /// 当前处于「磁贴模式」的 notepad 窗口 label（小窗转换而来，非独立 tile-* 窗口）
+    tile_mode_notepads: Mutex<HashSet<String>>,
     #[cfg(desktop)]
     shortcut_bindings: Mutex<ShortcutBindings>,
 }
@@ -563,7 +566,7 @@ struct ShortcutBindings {
 enum ShortcutAction {
     OpenNotepad,
     ToggleVisibility,
-    ShowTiles,
+    ToggleTilesPin,
 }
 
 #[derive(Default)]
@@ -603,6 +606,24 @@ impl RuntimeState {
         self.is_exiting.load(Ordering::SeqCst)
     }
 
+    /// 记录 notepad 窗口是否处于磁贴模式（供「显示桌面磁贴」快捷键定位）
+    fn set_notepad_tile_mode(&self, label: &str, tile: bool) {
+        if let Ok(mut guard) = self.tile_mode_notepads.lock() {
+            if tile {
+                guard.insert(label.to_string());
+            } else {
+                guard.remove(label);
+            }
+        }
+    }
+
+    fn is_tile_mode_notepad(&self, label: &str) -> bool {
+        self.tile_mode_notepads
+            .lock()
+            .map(|guard| guard.contains(label))
+            .unwrap_or(false)
+    }
+
     #[cfg(desktop)]
     fn set_shortcut_bindings(&self, bindings: ShortcutBindings) {
         if let Ok(mut guard) = self.shortcut_bindings.lock() {
@@ -630,7 +651,7 @@ impl ShortcutBindings {
         {
             Some(ShortcutAction::ToggleVisibility)
         } else if self.show_tiles.as_ref().is_some_and(|s| s == shortcut) {
-            Some(ShortcutAction::ShowTiles)
+            Some(ShortcutAction::ToggleTilesPin)
         } else if self.open_notepad.as_ref().is_some_and(|s| s == shortcut) {
             Some(ShortcutAction::OpenNotepad)
         } else {
@@ -991,13 +1012,57 @@ fn toggle_app_visibility(app: &AppHandle) {
     }
 }
 
-/// 显示当前桌面上已存在的磁贴窗口（不改变其他窗口）
-fn show_desktop_tiles(app: &AppHandle) {
-    for (label, window) in app.webview_windows() {
-        if label.starts_with("tile-") {
-            let _ = window.unminimize();
-            let _ = window.show();
+/// 收集当前桌面上的磁贴窗口 label：
+/// - 独立磁贴窗口（`tile-*` label）
+/// - 由小窗转换而来、当前处于磁贴模式的 notepad 窗口
+fn collect_tile_windows(app: &AppHandle) -> Vec<String> {
+    let state = app.try_state::<RuntimeState>();
+    let mut labels = Vec::new();
+    for (label, _) in app.webview_windows() {
+        let is_tile = label.starts_with("tile-")
+            || state
+                .as_ref()
+                .is_some_and(|s| s.is_tile_mode_notepad(&label));
+        if is_tile {
+            labels.push(label);
         }
+    }
+    labels
+}
+
+/// 置顶/置底磁贴：切换所有磁贴窗口的层级（置顶 ⇄ 置底）。
+/// 当前任一磁贴置顶 → 全部改为置底；否则全部改为置顶。
+fn toggle_tiles_pin(app: &AppHandle) {
+    let labels = collect_tile_windows(app);
+    if labels.is_empty() {
+        return;
+    }
+
+    // 当前是否处于「置顶」状态（任一磁贴置顶即视为置顶）
+    let any_top = labels.iter().any(|label| {
+        app.get_webview_window(label)
+            .and_then(|window| window.is_always_on_top().ok())
+            .unwrap_or(false)
+    });
+
+    for label in labels {
+        if let Some(window) = app.get_webview_window(&label) {
+            if any_top {
+                // 当前置顶 → 切到置底
+                let _ = window.set_always_on_top(false);
+                send_window_to_bottom(&window);
+            } else {
+                // 当前未置顶 → 切到置顶
+                let _ = window.set_always_on_top(true);
+            }
+        }
+    }
+}
+
+/// 前端上报 notepad 窗口的磁贴模式状态（小窗 ↔ 磁贴切换时调用）
+pub fn set_notepad_tile_mode(app: &AppHandle, label: &str, tile: bool) {
+    if let Some(state) = app.try_state::<RuntimeState>() {
+        state.set_notepad_tile_mode(label, tile);
     }
 }
 
@@ -1100,6 +1165,12 @@ pub fn handle_window_event(window: &Window, event: &WindowEvent) {
             let _ = window
                 .app_handle()
                 .emit("tile-window-closed", note_id.to_string());
+        }
+        // notepad 窗口销毁时清理磁贴模式注册
+        if window.label().starts_with("notepad-") {
+            if let Some(state) = window.app_handle().try_state::<RuntimeState>() {
+                state.set_notepad_tile_mode(window.label(), false);
+            }
         }
         return;
     }
@@ -1862,31 +1933,38 @@ fn notepad_always_on_top() -> bool {
 /// 将窗口置于 Z 序最底层（Windows HWND_BOTTOM）。
 /// 置底后窗口位于其他常规窗口之下；点击它时会被系统重新置前（Windows 没有
 /// 永久置底的 API，这里做一次性置底，作为「置底」按钮的合理近似）。
-pub fn set_window_bottom(app: &AppHandle, label: &str) -> Result<(), AppError> {
-    #[cfg(target_os = "windows")]
-    {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{
-            SetWindowPos, HWND_BOTTOM, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-        };
-        if let Some(window) = app.get_webview_window(label) {
-            if let Ok(hwnd) = window.hwnd() {
-                let raw: *mut std::ffi::c_void = hwnd.0;
-                unsafe {
-                    SetWindowPos(
-                        raw,
-                        HWND_BOTTOM,
-                        0,
-                        0,
-                        0,
-                        0,
-                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-                    );
-                }
-            }
+/// 将单个窗口置于 Z 序最底层（Windows HWND_BOTTOM）
+#[cfg(target_os = "windows")]
+fn send_window_to_bottom(window: &tauri::WebviewWindow) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, HWND_BOTTOM, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    };
+    if let Ok(hwnd) = window.hwnd() {
+        let raw: *mut std::ffi::c_void = hwnd.0;
+        unsafe {
+            SetWindowPos(
+                raw,
+                HWND_BOTTOM,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            );
         }
     }
-    #[cfg(not(target_os = "windows"))]
-    let _ = (app, label);
+}
+
+#[cfg(not(target_os = "windows"))]
+fn send_window_to_bottom(_window: &tauri::WebviewWindow) {}
+
+/// 将窗口置于 Z 序最底层（Windows HWND_BOTTOM）。
+/// 置底后窗口位于其他常规窗口之下；点击它时会被系统重新置前（Windows 没有
+/// 永久置底的 API，这里做一次性置底，作为「置底」按钮的合理近似）。
+pub fn set_window_bottom(app: &AppHandle, label: &str) -> Result<(), AppError> {
+    if let Some(window) = app.get_webview_window(label) {
+        send_window_to_bottom(&window);
+    }
     Ok(())
 }
 
@@ -1938,11 +2016,11 @@ fn setup_global_shortcut_plugin(app: &AppHandle) -> tauri::Result<()> {
                             eprintln!("failed to dispatch visibility toggle action: {error}");
                         }
                     }
-                    ShortcutAction::ShowTiles => {
+                    ShortcutAction::ToggleTilesPin => {
                         if let Err(error) = app.run_on_main_thread(move || {
-                            show_desktop_tiles(&app_for_closure);
+                            toggle_tiles_pin(&app_for_closure);
                         }) {
-                            eprintln!("failed to dispatch show-tiles action: {error}");
+                            eprintln!("failed to dispatch toggle-tiles-pin action: {error}");
                         }
                     }
                     ShortcutAction::OpenNotepad => {

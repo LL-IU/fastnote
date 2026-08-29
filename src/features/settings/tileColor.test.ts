@@ -8,7 +8,7 @@ describe("tile color settings", () => {
   });
 
   test("falls back to the default tile color for invalid values", () => {
-    expect(DEFAULT_TILE_COLOR).toBe("#f6f3ec");
+    expect(DEFAULT_TILE_COLOR).toBe("#faf7ef");
     expect(normalizeTileColor("")).toBe(DEFAULT_TILE_COLOR);
     expect(normalizeTileColor("#12zz99")).toBe(DEFAULT_TILE_COLOR);
   });

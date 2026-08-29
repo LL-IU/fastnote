@@ -25,9 +25,13 @@
 }
 
 @theme {
-  --color-paper: #f6f3ec;
-  --color-paper-warm: #f0ebe0;
-  --color-paper-deep: #e8e1d3;
+  /* 浅色主题：
+     - cloud：主界面背景（纯白）
+     - paper：文档列表 / 顶栏 / 底栏（原奶油色加深一点）
+     - paper-warm / paper-deep：设置项等较深元素（原色加深） */
+  --color-paper: #f3f1e9;
+  --color-paper-warm: #ebe6db;
+  --color-paper-deep: #e1dccd;
   --color-ink: #000000;
   --color-ink-soft: #3d3d38;
   --color-ink-faint: #8a8a80;
