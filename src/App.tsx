@@ -28,7 +28,8 @@ function App() {
           "--tab-indent-size",
           String(config.tabIndentSize ?? 2),
         );
-        void syncLanguage(config.locale);
+        // 仅支持中文界面
+        void syncLanguage("zh-CN");
       })
       .catch(() => {});
     return () => cleanup();
@@ -45,7 +46,8 @@ function App() {
         "--tab-indent-size",
         String(event.payload.tabIndentSize ?? 2),
       );
-      void syncLanguage(event.payload.locale);
+      // 仅支持中文界面
+      void syncLanguage("zh-CN");
     });
     return () => {
       themeCleanup();

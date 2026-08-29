@@ -483,6 +483,7 @@ pub struct RuntimeConfigChanges {
     pub autostart_changed: bool,
     pub global_shortcut_changed: bool,
     pub toggle_visibility_shortcut_changed: bool,
+    pub show_tiles_shortcut_changed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -545,8 +546,6 @@ struct WindowOpenOptions {
 #[derive(Default)]
 struct RuntimeState {
     is_exiting: AtomicBool,
-    windows_hidden: AtomicBool,
-    hidden_window_labels: Mutex<Vec<String>>,
     #[cfg(desktop)]
     shortcut_bindings: Mutex<ShortcutBindings>,
 }
@@ -556,6 +555,7 @@ struct RuntimeState {
 struct ShortcutBindings {
     open_notepad: Option<Shortcut>,
     toggle_visibility: Option<Shortcut>,
+    show_tiles: Option<Shortcut>,
 }
 
 #[cfg(desktop)]
@@ -563,6 +563,7 @@ struct ShortcutBindings {
 enum ShortcutAction {
     OpenNotepad,
     ToggleVisibility,
+    ShowTiles,
 }
 
 #[derive(Default)]
@@ -602,39 +603,6 @@ impl RuntimeState {
         self.is_exiting.load(Ordering::SeqCst)
     }
 
-    fn clear_hidden_windows(&self) {
-        if !self.windows_hidden.swap(false, Ordering::SeqCst) {
-            return;
-        }
-
-        if let Ok(mut guard) = self.hidden_window_labels.lock() {
-            guard.clear();
-        }
-    }
-
-    fn take_hidden_window_labels(&self) -> Option<Vec<String>> {
-        if !self.windows_hidden.swap(false, Ordering::SeqCst) {
-            return None;
-        }
-
-        self.hidden_window_labels
-            .lock()
-            .map(|mut guard| guard.drain(..).collect())
-            .ok()
-    }
-
-    fn hide_windows(&self, labels: Vec<String>) {
-        if labels.is_empty() {
-            self.clear_hidden_windows();
-            return;
-        }
-
-        if let Ok(mut guard) = self.hidden_window_labels.lock() {
-            *guard = labels;
-            self.windows_hidden.store(true, Ordering::SeqCst);
-        }
-    }
-
     #[cfg(desktop)]
     fn set_shortcut_bindings(&self, bindings: ShortcutBindings) {
         if let Ok(mut guard) = self.shortcut_bindings.lock() {
@@ -661,6 +629,8 @@ impl ShortcutBindings {
             .is_some_and(|s| s == shortcut)
         {
             Some(ShortcutAction::ToggleVisibility)
+        } else if self.show_tiles.as_ref().is_some_and(|s| s == shortcut) {
+            Some(ShortcutAction::ShowTiles)
         } else if self.open_notepad.as_ref().is_some_and(|s| s == shortcut) {
             Some(ShortcutAction::OpenNotepad)
         } else {
@@ -1004,92 +974,31 @@ pub fn runtime_config_changes(previous: &AppConfig, next: &AppConfig) -> Runtime
         global_shortcut_changed: previous.global_shortcut != next.global_shortcut,
         toggle_visibility_shortcut_changed: previous.toggle_visibility_shortcut
             != next.toggle_visibility_shortcut,
+        show_tiles_shortcut_changed: previous.show_tiles_shortcut != next.show_tiles_shortcut,
     }
 }
 
-fn clear_hidden_window_state(app: &AppHandle) {
-    let labels = app
-        .try_state::<RuntimeState>()
-        .and_then(|state| state.take_hidden_window_labels());
-
-    let Some(labels) = labels else {
-        return;
-    };
-
-    for label in &labels {
-        if label.starts_with("notepad-") || label.starts_with("tile-") {
-            if let Some(window) = app.get_webview_window(label) {
-                let _ = window.close();
-            }
-        }
-    }
-}
-
-/// 显示/隐藏主窗口 + 桌面磁贴：
-/// - 有可见窗口时：隐藏主窗口与所有磁贴窗口（记录本次隐藏的窗口）
-/// - 全部隐藏时：打开主窗口，并重新显示已钉在桌面的磁贴
+/// 显示/隐藏主窗口（仅主窗口；桌面磁贴由「显示桌面磁贴」快捷键单独控制）
 fn toggle_app_visibility(app: &AppHandle) {
-    let Some(state) = app.try_state::<RuntimeState>() else {
-        return;
-    };
-
-    // 恢复上次隐藏的窗口（主窗口 + 磁贴），并确保主窗口可见
-    if let Some(labels) = state.take_hidden_window_labels() {
-        let mut focus_target = None;
-        let mut shown_main = false;
-        for label in &labels {
-            if let Some(window) = app.get_webview_window(label) {
-                let _ = window.unminimize();
-                let _ = window.show();
-                if label == MAIN_WINDOW_LABEL {
-                    shown_main = true;
-                }
-                if focus_target.is_none() || label == MAIN_WINDOW_LABEL {
-                    focus_target = Some(label.clone());
-                }
-            }
-        }
-        // 主窗口不在本次恢复列表时也一并显示（打开主窗口）
-        if !shown_main {
-            if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-                let _ = window.show();
-                focus_target = Some(MAIN_WINDOW_LABEL.to_string());
-            }
-        }
-        if let Some(label) = focus_target {
-            if let Some(window) = app.get_webview_window(&label) {
-                let _ = window.set_focus();
-            }
-        }
-        return;
-    }
-
-    // 隐藏：主窗口 + 所有磁贴窗口
-    let mut labels = Vec::new();
-    for (label, window) in app.webview_windows() {
-        if (label == MAIN_WINDOW_LABEL || label.starts_with("tile-"))
-            && window.is_visible().unwrap_or(false)
-        {
-            labels.push(label.clone());
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        if window.is_visible().unwrap_or(false) {
             let _ = window.hide();
+        } else {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
         }
     }
+}
 
-    if labels.is_empty() {
-        // 均不可见：打开主窗口 + 打开已钉在桌面的磁贴
-        if let Err(error) = show_main_window(app) {
-            eprintln!("failed to show main window from visibility toggle: {error}");
+/// 显示当前桌面上已存在的磁贴窗口（不改变其他窗口）
+fn show_desktop_tiles(app: &AppHandle) {
+    for (label, window) in app.webview_windows() {
+        if label.starts_with("tile-") {
+            let _ = window.unminimize();
+            let _ = window.show();
         }
-        for (label, window) in app.webview_windows() {
-            if label.starts_with("tile-") {
-                let _ = window.unminimize();
-                let _ = window.show();
-            }
-        }
-        return;
     }
-
-    state.hide_windows(labels);
 }
 
 pub fn apply_runtime_config(
@@ -1099,7 +1008,10 @@ pub fn apply_runtime_config(
 ) -> Result<(), Box<dyn Error>> {
     let changes = runtime_config_changes(previous, next);
 
-    if changes.global_shortcut_changed || changes.toggle_visibility_shortcut_changed {
+    if changes.global_shortcut_changed
+        || changes.toggle_visibility_shortcut_changed
+        || changes.show_tiles_shortcut_changed
+    {
         apply_global_shortcut_config(app, next)?;
     }
 
@@ -1409,7 +1321,6 @@ fn toggle_close_to_tray(_app: &AppHandle) -> Result<AppConfig, Box<dyn Error>> {
 }
 
 pub fn show_main_window(app: &AppHandle) -> Result<(), AppError> {
-    clear_hidden_window_state(app);
     let locale = configured_locale();
 
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
@@ -1456,7 +1367,6 @@ fn open_notepad_window_now(
 ) -> Result<String, AppError> {
     if note_id.is_none() {
         if let Some(reused) = activate_pooled_notepad(app, bounds) {
-            clear_hidden_window_state(app);
             return Ok(reused);
         }
     }
@@ -1840,8 +1750,6 @@ fn open_or_focus_window(
     label: &str,
     opts: WindowOpenOptions,
 ) -> Result<String, AppError> {
-    clear_hidden_window_state(app);
-
     let visual_options = dynamic_window_visual_options(label);
 
     if let Some(window) = app.get_webview_window(label) {
@@ -2028,6 +1936,13 @@ fn setup_global_shortcut_plugin(app: &AppHandle) -> tauri::Result<()> {
                             toggle_app_visibility(&app_for_closure);
                         }) {
                             eprintln!("failed to dispatch visibility toggle action: {error}");
+                        }
+                    }
+                    ShortcutAction::ShowTiles => {
+                        if let Err(error) = app.run_on_main_thread(move || {
+                            show_desktop_tiles(&app_for_closure);
+                        }) {
+                            eprintln!("failed to dispatch show-tiles action: {error}");
                         }
                     }
                     ShortcutAction::OpenNotepad => {
@@ -2222,23 +2137,41 @@ fn shortcut_bindings_from_config(config: &AppConfig) -> Result<ShortcutBindings,
             &config.toggle_visibility_shortcut,
         )?)
     };
+    let show_tiles = if config.show_tiles_shortcut.is_empty() {
+        None
+    } else {
+        Some(parse_configured_shortcut(
+            "showTilesShortcut",
+            &config.show_tiles_shortcut,
+        )?)
+    };
 
-    // 只有两个快捷键都已设置时才需要检查重复，避免清空快捷键时误报配置冲突。
-    if open_notepad
-        .as_ref()
-        .zip(toggle_visibility.as_ref())
-        .is_some_and(|(open_notepad, toggle_visibility)| open_notepad == toggle_visibility)
-    {
-        return Err(Box::new(AppError {
-            code: "duplicateShortcut".into(),
-            message: "visibility toggle shortcut must differ from global shortcut".into(),
-            details: Default::default(),
-        }));
+    // 三个快捷键互不重复；空值（未设置）不参与比较
+    let set_shortcuts = [
+        ("globalShortcut", open_notepad.as_ref()),
+        ("toggleVisibilityShortcut", toggle_visibility.as_ref()),
+        ("showTilesShortcut", show_tiles.as_ref()),
+    ];
+    for (i, (name_a, a)) in set_shortcuts.iter().enumerate() {
+        if let Some(a) = a {
+            for (name_b, b) in set_shortcuts.iter().skip(i + 1) {
+                if let Some(b) = b {
+                    if a == b {
+                        return Err(Box::new(AppError {
+                            code: "duplicateShortcut".into(),
+                            message: format!("{name_a} 与 {name_b} 不能设置为相同快捷键"),
+                            details: Default::default(),
+                        }));
+                    }
+                }
+            }
+        }
     }
 
     Ok(ShortcutBindings {
         open_notepad,
         toggle_visibility,
+        show_tiles,
     })
 }
 
@@ -2258,6 +2191,9 @@ fn install_global_shortcut_bindings(
         app.global_shortcut().register(*shortcut)?;
     }
     if let Some(shortcut) = &bindings.toggle_visibility {
+        app.global_shortcut().register(*shortcut)?;
+    }
+    if let Some(shortcut) = &bindings.show_tiles {
         app.global_shortcut().register(*shortcut)?;
     }
 
@@ -2663,6 +2599,7 @@ mod tests {
             surface_width: None,
             surface_height: None,
             toggle_visibility_shortcut: toggle_visibility_shortcut.into(),
+            show_tiles_shortcut: String::new(),
             notes_dir: None,
             last_known_base_dir: None,
         }
@@ -2678,7 +2615,7 @@ mod tests {
             Err(error) => error,
         };
 
-        assert!(error.to_string().contains("must differ"));
+        assert!(error.to_string().contains("不能设置为相同快捷键"));
     }
 
     #[cfg(desktop)]
@@ -2749,6 +2686,7 @@ mod tests {
             surface_width: None,
             surface_height: None,
             toggle_visibility_shortcut: String::new(),
+            show_tiles_shortcut: String::new(),
             notes_dir: None,
             last_known_base_dir: None,
         };
@@ -2787,6 +2725,7 @@ mod tests {
             surface_width: None,
             surface_height: None,
             toggle_visibility_shortcut: "Ctrl+Shift+H".into(),
+            show_tiles_shortcut: "Ctrl+Shift+T".into(),
             notes_dir: None,
             last_known_base_dir: None,
         };
@@ -2797,6 +2736,7 @@ mod tests {
                 autostart_changed: true,
                 global_shortcut_changed: true,
                 toggle_visibility_shortcut_changed: true,
+                show_tiles_shortcut_changed: true,
             }
         );
         assert_eq!(
@@ -2805,6 +2745,7 @@ mod tests {
                 autostart_changed: false,
                 global_shortcut_changed: false,
                 toggle_visibility_shortcut_changed: false,
+                show_tiles_shortcut_changed: false,
             }
         );
     }

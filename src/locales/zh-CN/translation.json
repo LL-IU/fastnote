@@ -153,7 +153,8 @@
       "about": "关于",
       "quickNotepad": "快捷便签",
       "restore": "还原",
-      "settings": "设置"
+      "settings": "设置",
+      "sync": "WebDAV 同步"
     }
   },
   "noteMenu": {
@@ -268,7 +269,8 @@
     "renderHtmlMarkdown": "允许 HTML 标签渲染",
     "splitScrollSync": "分栏同步滚动",
     "title": "应用设置",
-    "visibilityShortcut": "打开主窗口并打开桌面磁贴",
+    "visibilityShortcut": "显示/隐藏主窗口",
+    "showTilesShortcut": "显示桌面磁贴",
     "background": {
       "label": "背景图片",
       "default": "默认背景",
@@ -300,7 +302,13 @@
       "never": "从未同步",
       "testing": "连接测试中…",
       "syncing": "同步中…",
-      "statusError": "同步失败：{{msg}}"
+      "statusError": "同步失败：{{msg}}",
+      "autoSync": "定时同步",
+      "autoSyncOff": "关闭",
+      "autoSync5m": "5 分钟",
+      "autoSync15m": "15 分钟",
+      "autoSync30m": "30 分钟",
+      "autoSync60m": "60 分钟"
     }
   },
   "tile": {

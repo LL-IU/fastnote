@@ -153,7 +153,8 @@
       "about": "關於",
       "quickNotepad": "快捷便箋",
       "restore": "還原視窗",
-      "settings": "設定"
+      "settings": "設定",
+      "sync": "WebDAV 同步"
     }
   },
   "noteMenu": {
@@ -268,7 +269,8 @@
     "renderHtmlMarkdown": "允許 HTML 標籤渲染",
     "splitScrollSync": "分欄同步捲動",
     "title": "應用程式設定",
-    "visibilityShortcut": "開啟主視窗並開啟桌面磁貼",
+    "visibilityShortcut": "顯示／隱藏主視窗",
+    "showTilesShortcut": "顯示桌面磁貼",
     "background": {
       "label": "背景圖片",
       "default": "預設背景",
@@ -300,7 +302,13 @@
       "never": "從未同步",
       "testing": "連線測試中…",
       "syncing": "同步中…",
-      "statusError": "同步失敗：{{msg}}"
+      "statusError": "同步失敗：{{msg}}",
+      "autoSync": "定時同步",
+      "autoSyncOff": "關閉",
+      "autoSync5m": "5 分鐘",
+      "autoSync15m": "15 分鐘",
+      "autoSync30m": "30 分鐘",
+      "autoSync60m": "60 分鐘"
     }
   },
   "tile": {

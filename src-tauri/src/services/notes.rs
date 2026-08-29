@@ -86,6 +86,8 @@ pub struct AppConfig {
     pub surface_height: Option<u32>,
     #[serde(default = "default_toggle_visibility_shortcut")]
     pub toggle_visibility_shortcut: String,
+    #[serde(default = "default_show_tiles_shortcut")]
+    pub show_tiles_shortcut: String,
     #[serde(default = "default_open_at_cursor")]
     pub open_at_cursor: bool,
     #[serde(default = "default_notepad_always_on_top")]
@@ -718,6 +720,8 @@ impl NoteStore {
         }
 
         let mut config: AppConfig = serde_json::from_str(&fs::read_to_string(&path)?)?;
+        // 仅支持中文界面：强制 locale 为 zh-CN（忽略历史配置中的其他语言）
+        config.locale = "zh-CN".to_string();
         // config 中记录的 dataDir 是上次运行时数据所在位置；若本次 resolve 出的
         // self.data_dir 与之不同（如 FLORAL_NOTEPAPER_DATA_DIR 被改），尝试搬运旧数据
         self.migrate_data_dir_if_relocated(&mut config);
@@ -733,6 +737,8 @@ impl NoteStore {
 
     pub fn save_config(&self, mut config: AppConfig) -> Result<AppConfig, AppError> {
         self.ensure_config_dir()?;
+        // 仅支持中文界面：强制 locale 为 zh-CN
+        config.locale = "zh-CN".to_string();
         config.data_dir = Some(self.data_dir.to_string_lossy().to_string());
         config.tab_indent_size = config.tab_indent_size.clamp(1, 8);
         is_safe_data_dir(&self.data_dir)?;
@@ -1167,6 +1173,7 @@ impl NoteStore {
             surface_width: None,
             surface_height: None,
             toggle_visibility_shortcut: default_toggle_visibility_shortcut(),
+            show_tiles_shortcut: default_show_tiles_shortcut(),
             open_at_cursor: default_open_at_cursor(),
             notepad_always_on_top: default_notepad_always_on_top(),
             notes_dir: None,
@@ -1750,6 +1757,10 @@ fn default_toggle_visibility_shortcut() -> String {
     String::new()
 }
 
+fn default_show_tiles_shortcut() -> String {
+    "CmdOrCtrl+Shift+T".to_string()
+}
+
 fn default_open_at_cursor() -> bool {
     true
 }
@@ -1903,7 +1914,7 @@ mod tests {
         );
 
         let mut saved = AppConfig {
-            locale: "en-US".into(),
+            locale: "zh-CN".into(),
             data_dir: None,
             global_shortcut: "Alt+Space".into(),
             close_to_tray: false,
@@ -1935,6 +1946,7 @@ mod tests {
             surface_width: None,
             surface_height: None,
             toggle_visibility_shortcut: String::new(),
+            show_tiles_shortcut: "CmdOrCtrl+Shift+T".into(),
             notes_dir: None,
             last_known_base_dir: None,
             open_at_cursor: true,

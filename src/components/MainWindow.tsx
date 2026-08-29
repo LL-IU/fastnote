@@ -30,6 +30,7 @@ import {
 } from "../features/settings/api";
 import type { AppConfig, ViewMode } from "../features/settings/types";
 import { normalizeTileColor } from "../features/settings/tileColor";
+import { webdavSyncNow } from "../features/settings/webdav";
 import { BackgroundLayer } from "./BackgroundLayer";
 import { POPUP_VIEWPORT_MARGIN, useViewportPopupPosition } from "./popupPosition";
 import { SlidingButtonGroup } from "./SlidingButtonGroup";
@@ -1739,6 +1740,13 @@ export function MainWindow({
     void startCurrentWindowDrag().catch(() => undefined);
   };
 
+  // 手动 WebDAV 同步（使用已保存配置；未启用时后端会返回提示）
+  const handleWebdavSync = () => {
+    void webdavSyncNow({ url: "", user: "", pass: "" })
+      .then((msg) => showToast(msg, "info"))
+      .catch((error) => showToast(getErrorMessage(error), "warning"));
+  };
+
   const handleMinimize = () => {
     void minimizeCurrentWindow();
   };
@@ -1834,6 +1842,28 @@ export function MainWindow({
                 <circle cx="12" cy="12" r="10" />
                 <path d="M12 16v-4" />
                 <path d="M12 8h.01" />
+              </svg>
+            </button>
+
+            <button
+              onClick={handleWebdavSync}
+              className="w-10 h-11 flex items-center justify-center text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50 transition-all cursor-pointer"
+              title={t("main.window.sync", { defaultValue: "WebDAV 同步" })}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M17.5 19a4.5 4.5 0 0 0 0-9h-1.8A7 7 0 1 0 4.5 14.6" />
+                <path d="M12 13v6" />
+                <path d="m9.5 16.5 2.5 2.5 2.5-2.5" />
+                <path d="m9.5 9.5 2.5-2.5 2.5 2.5" />
               </svg>
             </button>
 

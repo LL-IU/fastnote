@@ -26,8 +26,11 @@ use crate::{json_io::write_json_atomic, services::notes::default_store};
 /// 远端同步文件名（存于用户配置的 remotePath 目录下，默认 /fastnote/fastnote.json）
 const DEFAULT_REMOTE_PATH: &str = "/fastnote/fastnote.json";
 
-/// 后台定时同步间隔（秒）
-const SYNC_POLL_INTERVAL_SECS: u64 = 300;
+/// 后台定时同步间隔（秒）——默认 5 分钟
+const SYNC_POLL_INTERVAL_SECS: i64 = 300;
+
+/// 定时同步间隔下限（秒），避免用户配置过小导致频繁请求
+const SYNC_POLL_MIN_INTERVAL_SECS: i64 = 60;
 
 /// 简单加密密钥派生：固定 salt + 应用标识（设备级弱密钥，仅防明文泄漏）
 const ENC_KEY_SALT: &[u8] = b"fastnote-webdav-salt";
@@ -74,6 +77,13 @@ struct WebdavConfigFile {
     remote_path: String,
     #[serde(default)]
     last_sync: i64,
+    /// 定时同步间隔（秒），0 表示关闭定时同步；默认 300（5 分钟）
+    #[serde(default = "default_auto_sync_secs")]
+    auto_sync_secs: i64,
+}
+
+fn default_auto_sync_secs() -> i64 {
+    SYNC_POLL_INTERVAL_SECS
 }
 
 // ──────────────── 配置读写 ────────────────
@@ -524,20 +534,24 @@ fn sync_tick() {
     }
 }
 
-/// 启动 Rust 端后台同步轮询（异步运行时内循环，仅在启用时执行同步）
+/// 启动 Rust 端后台定时同步轮询（间隔由配置 `auto_sync_secs` 控制，0 = 关闭；仅启用时执行同步）
 pub fn start_webdav_sync_poll(_app: &AppHandle) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_secs(10)).await;
 
-        let mut interval = tokio::time::interval(Duration::from_secs(SYNC_POLL_INTERVAL_SECS));
-        interval.tick().await; // 跳过首个即时 tick
-
         loop {
-            interval.tick().await;
-            if !load_config().map(|c| c.enabled).unwrap_or(false) {
-                continue;
+            let cfg = load_config().unwrap_or_default();
+            let enabled = cfg.enabled;
+            let auto_secs = cfg.auto_sync_secs;
+
+            // 启用且未关闭定时同步时执行一轮同步
+            if enabled && auto_secs > 0 {
+                let _ = tokio::task::spawn_blocking(sync_tick).await;
             }
-            let _ = tokio::task::spawn_blocking(sync_tick).await;
+
+            // 按配置间隔等待（下限 60 秒），配置为 0（关闭定时）时也定期检查是否重新开启
+            let wait_secs = auto_secs.max(SYNC_POLL_MIN_INTERVAL_SECS) as u64;
+            tokio::time::sleep(Duration::from_secs(wait_secs)).await;
         }
     });
 }
@@ -551,6 +565,8 @@ pub struct WebdavConfigPayload {
     pub user: Option<String>,
     pub pass: Option<String>,
     pub remote_path: Option<String>,
+    /// 定时同步间隔（秒），0 表示关闭定时同步
+    pub auto_sync_secs: Option<i64>,
 }
 
 /// 设置 WebDAV 配置（密码加密存储；空密码表示不修改已保存密码）
@@ -579,6 +595,9 @@ pub async fn webdav_set_config(config: WebdavConfigPayload) -> Result<(), String
                 remote_path
             };
         }
+        if let Some(auto_sync_secs) = config.auto_sync_secs {
+            cfg.auto_sync_secs = auto_sync_secs.max(0);
+        }
         save_config(&cfg)
     })
     .await
@@ -598,6 +617,7 @@ pub async fn webdav_get_config() -> Result<serde_json::Value, String> {
             "hasPassword": has_password,
             "remotePath": if cfg.remote_path.is_empty() { DEFAULT_REMOTE_PATH } else { cfg.remote_path.as_str() },
             "lastSync": cfg.last_sync,
+            "autoSyncSecs": cfg.auto_sync_secs,
         }))
     })
     .await

@@ -25,7 +25,6 @@ import {
   webdavSyncNow,
   webdavTest,
 } from "../features/settings/webdav";
-import { LOCALE_OPTIONS } from "../locales/locale-whitelist";
 import { SlidingButtonGroup } from "./SlidingButtonGroup";
 
 const HARMONY_FONT_LICENSE_URL = new URL("../assets/fonts/LICENSE_Fonts", import.meta.url).href;
@@ -83,14 +82,6 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
       { value: "contain", label: t("settings.background.fit.contain", { defaultValue: "完整" }) },
       { value: "repeat", label: t("settings.background.fit.repeat", { defaultValue: "平铺" }) },
     ],
-    [t],
-  );
-  const localeOptions = useMemo(
-    () =>
-      LOCALE_OPTIONS.map(({ value, labelKey, defaultLabel }) => ({
-        value,
-        label: t(labelKey, { defaultValue: defaultLabel }),
-      })),
     [t],
   );
 
@@ -155,17 +146,6 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
               {t("settings.selectFolder", { defaultValue: "选择文件夹" })}
             </button>
           </div>
-        </section>
-
-        <section className="space-y-2">
-          <label className="block text-[11px] font-body text-ink-faint">
-            {t("settings.locale.label", { defaultValue: "语言" })}
-          </label>
-          <SlidingButtonGroup
-            options={localeOptions}
-            value={config.locale}
-            onChange={(value) => setConfigValue("locale", value)}
-          />
         </section>
 
         <section className="space-y-2">
@@ -254,11 +234,20 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
           </div>
           <div className="space-y-1.5">
             <label className="block text-[11px] font-body text-ink-faint/70 px-0.5">
-              {t("settings.visibilityShortcut", { defaultValue: "打开主窗口并打开桌面磁贴" })}
+              {t("settings.visibilityShortcut", { defaultValue: "显示/隐藏主窗口" })}
             </label>
             <ShortcutRecorder
               value={config.toggleVisibilityShortcut}
               onChange={(v) => setConfigValue("toggleVisibilityShortcut", v)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="block text-[11px] font-body text-ink-faint/70 px-0.5">
+              {t("settings.showTilesShortcut", { defaultValue: "显示桌面磁贴" })}
+            </label>
+            <ShortcutRecorder
+              value={config.showTilesShortcut}
+              onChange={(v) => setConfigValue("showTilesShortcut", v)}
             />
           </div>
         </section>
@@ -508,8 +497,20 @@ function WebdavSettings() {
   const [pass, setPass] = useState("");
   const [remotePath, setRemotePath] = useState("/fastnote/fastnote.json");
   const [lastSync, setLastSync] = useState(0);
+  const [autoSyncSecs, setAutoSyncSecs] = useState(300);
   const [busy, setBusy] = useState<"" | "test" | "sync">("");
   const [status, setStatus] = useState<string>("");
+
+  const autoSyncOptions = useMemo<Array<{ value: string; label: string }>>(
+    () => [
+      { value: "0", label: t("settings.webdav.autoSyncOff", { defaultValue: "关闭" }) },
+      { value: "300", label: t("settings.webdav.autoSync5m", { defaultValue: "5 分钟" }) },
+      { value: "900", label: t("settings.webdav.autoSync15m", { defaultValue: "15 分钟" }) },
+      { value: "1800", label: t("settings.webdav.autoSync30m", { defaultValue: "30 分钟" }) },
+      { value: "3600", label: t("settings.webdav.autoSync60m", { defaultValue: "60 分钟" }) },
+    ],
+    [t],
+  );
 
   const load = useCallback(async () => {
     try {
@@ -519,6 +520,7 @@ function WebdavSettings() {
       setUser(cfg.user);
       setRemotePath(cfg.remotePath || "/fastnote/fastnote.json");
       setLastSync(cfg.lastSync);
+      setAutoSyncSecs(cfg.autoSyncSecs ?? 300);
     } catch (error) {
       setStatus(String(error));
     }
@@ -533,12 +535,13 @@ function WebdavSettings() {
     if (url) cfg.url = url;
     if (user) cfg.user = user;
     if (remotePath) cfg.remotePath = remotePath;
+    cfg.autoSyncSecs = autoSyncSecs;
     // 仅当用户输入了密码才更新（留空表示保留已保存密码）
     if (pass) cfg.pass = pass;
     await webdavSetConfig(cfg);
     setPass("");
     await load();
-  }, [enabled, url, user, remotePath, pass, load]);
+  }, [enabled, url, user, remotePath, pass, autoSyncSecs, load]);
 
   const onToggle = async (value: boolean) => {
     setEnabled(value);
@@ -546,6 +549,7 @@ function WebdavSettings() {
     if (url) cfg.url = url;
     if (user) cfg.user = user;
     if (remotePath) cfg.remotePath = remotePath;
+    cfg.autoSyncSecs = autoSyncSecs;
     if (pass) cfg.pass = pass;
     try {
       await webdavSetConfig(cfg);
@@ -689,6 +693,21 @@ function WebdavSettings() {
           className={inputClass}
           value={remotePath}
           onChange={(e) => setRemotePath(e.target.value)}
+        />
+
+        <label className="block text-[10px] font-body text-ink-ghost">
+          {t("settings.webdav.autoSync", { defaultValue: "定时同步" })}
+        </label>
+        <SlidingButtonGroup
+          options={autoSyncOptions}
+          value={String(autoSyncSecs)}
+          onChange={(value) => {
+            const secs = Number(value);
+            setAutoSyncSecs(secs);
+            void webdavSetConfig({ autoSyncSecs: secs }).catch((error) =>
+              setStatus(String(error)),
+            );
+          }}
         />
 
         <div className="flex gap-2">

@@ -2,7 +2,6 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import App from "./App";
-import { getConfig } from "./features/settings/api";
 import i18n, { initializeI18n } from "./locales";
 
 const rootElement = document.getElementById("root");
@@ -14,16 +13,8 @@ if (!rootElement) {
 const mountTarget = rootElement;
 
 async function bootstrap() {
-  let locale: string | undefined;
-
-  try {
-    const config = await getConfig();
-    locale = config.locale;
-  } catch {
-    locale = undefined;
-  }
-
-  await initializeI18n(locale);
+  // 仅支持中文界面
+  await initializeI18n("zh-CN");
 
   ReactDOM.createRoot(mountTarget).render(
     <React.StrictMode>

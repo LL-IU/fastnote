@@ -153,7 +153,8 @@
       "about": "About",
       "quickNotepad": "Quick Note",
       "restore": "Restore",
-      "settings": "Settings"
+      "settings": "Settings",
+      "sync": "WebDAV Sync"
     }
   },
   "noteMenu": {
@@ -268,7 +269,8 @@
     "renderHtmlMarkdown": "Render HTML tags in Markdown",
     "splitScrollSync": "Split view scroll sync",
     "title": "Settings",
-    "visibilityShortcut": "Open main window and desktop tiles",
+    "visibilityShortcut": "Show/Hide main window",
+    "showTilesShortcut": "Show desktop tiles",
     "background": {
       "label": "Background image",
       "default": "Default background",
@@ -300,7 +302,13 @@
       "never": "Never synced",
       "testing": "Testing connection…",
       "syncing": "Syncing…",
-      "statusError": "Sync failed: {{msg}}"
+      "statusError": "Sync failed: {{msg}}",
+      "autoSync": "Auto sync",
+      "autoSyncOff": "Off",
+      "autoSync5m": "5 min",
+      "autoSync15m": "15 min",
+      "autoSync30m": "30 min",
+      "autoSync60m": "60 min"
     }
   },
   "tile": {

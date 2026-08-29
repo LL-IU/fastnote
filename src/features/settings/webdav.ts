@@ -8,6 +8,8 @@ export interface WebdavConfig {
   hasPassword: boolean;
   remotePath: string;
   lastSync: number;
+  /** 定时同步间隔（秒），0 表示关闭定时同步 */
+  autoSyncSecs: number;
 }
 
 export interface WebdavStatus {
@@ -29,6 +31,7 @@ export async function webdavSetConfig(cfg: {
   user?: string;
   pass?: string;
   remotePath?: string;
+  autoSyncSecs?: number;
 }): Promise<void> {
   await invoke("webdav_set_config", { config: cfg });
 }
