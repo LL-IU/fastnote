@@ -750,7 +750,10 @@ function WebdavSettings() {
 
 function ToggleRow({ label, checked, onChange }: ToggleRowProps) {
   return (
-    <label className="flex items-center justify-between h-9 rounded-lg px-2.5 bg-paper-warm/45 border border-paper-deep/25 cursor-pointer">
+    // relative:让 sr-only 隐藏 checkbox 以本行为定位基准。否则它会脱离行、
+    // 漂浮到侧栏 wrapper 上,点击行时浏览器为聚焦它而滚动/重绘异常,
+    // 造成设置页跳动与底部大片白屏。
+    <label className="relative flex items-center justify-between h-9 rounded-lg px-2.5 bg-paper-warm/45 border border-paper-deep/25 cursor-pointer">
       <span className="text-[12px] text-ink-soft">{label}</span>
       <input
         type="checkbox"
