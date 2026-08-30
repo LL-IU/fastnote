@@ -1,6 +1,6 @@
 [package]
 name = "fastnote"
-version = "0.1.5"
+version = "0.1.6"
 description = "A lightweight Windows desktop sticky note app"
 authors = ["fastnote"]
 edition = "2021"

@@ -1,0 +1,49 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3f855a"/>
+      <stop offset="1" stop-color="#27543a"/>
+    </linearGradient>
+    <linearGradient id="sheet" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fffdf7"/>
+      <stop offset="1" stop-color="#f7f1e2"/>
+    </linearGradient>
+    <linearGradient id="bolt" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a7a52"/>
+      <stop offset="1" stop-color="#27543a"/>
+    </linearGradient>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="26"/>
+      <feOffset dy="18" result="o"/>
+      <feComponentTransfer in="o" result="s"><feFuncA type="linear" slope="0.32"/></feComponentTransfer>
+      <feMerge><feMergeNode in="s"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- 圆角底:竹绿 -->
+  <rect x="0" y="0" width="1024" height="1024" rx="230" fill="url(#tile)"/>
+  <!-- 顶部微高光 -->
+  <rect x="0" y="0" width="1024" height="1024" rx="230" fill="#ffffff" opacity="0.06"/>
+
+  <!-- 便签纸:微旋转、右下折角 -->
+  <g transform="rotate(-4 512 526) translate(0 14)" filter="url(#soft)">
+    <path d="M 252 182
+             L 772 182
+             Q 812 182 812 222
+             L 812 678
+             L 662 838
+             L 252 838
+             Q 212 838 212 798
+             L 212 222
+             Q 212 182 252 182 Z"
+          fill="url(#sheet)"/>
+    <path d="M 812 678 L 662 838 L 662 696 Q 662 678 680 678 Z"
+          fill="#e3dbc4"/>
+  </g>
+
+  <!-- 闪电:快 -->
+  <g transform="rotate(-4 512 526) translate(0 14)">
+    <path d="M 592 252 L 384 548 L 508 548 L 440 772 L 684 440 L 550 440 L 648 252 Z"
+          fill="url(#bolt)"/>
+  </g>
+</svg>
