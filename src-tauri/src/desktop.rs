@@ -417,6 +417,10 @@ use tauri_plugin_autostart::{MacosLauncher, ManagerExt as AutostartExt};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 const MAIN_WINDOW_LABEL: &str = "main";
+const MAIN_WINDOW_DEFAULT_WIDTH: f64 = 1180.0;
+const MAIN_WINDOW_DEFAULT_HEIGHT: f64 = 760.0;
+const MAIN_WINDOW_MIN_WIDTH: f64 = 900.0;
+const MAIN_WINDOW_MIN_HEIGHT: f64 = 620.0;
 const OPEN_ABOUT_PANEL_EVENT: &str = "open-about-panel";
 const MACOS_APP_ABOUT_ID: &str = "macos-about";
 const TRAY_ID: &str = "main-tray";
@@ -1144,6 +1148,8 @@ pub fn setup_desktop(app: &mut App) -> Result<(), Box<dyn Error>> {
     schedule_notepad_prewarm(app.handle());
 
     if !std::env::args().any(|a| a == "--silent") {
+        // 主窗口由 tauri.conf 静态创建（隐藏状态），显示前先沿用上次完全退出时记忆的尺寸
+        apply_remembered_main_window_size(app.handle());
         if let Err(error) = show_main_window(app.handle()) {
             eprintln!("failed to show main window on startup: {error}");
         }
@@ -1402,6 +1408,13 @@ pub fn show_main_window(app: &AppHandle) -> Result<(), AppError> {
         return Ok(());
     }
 
+    // 沿用上次完全退出时记忆的主窗口尺寸；无记忆或非法时用默认值
+    let (width, height) = load_config()
+        .ok()
+        .as_ref()
+        .and_then(remembered_main_window_size)
+        .unwrap_or((MAIN_WINDOW_DEFAULT_WIDTH, MAIN_WINDOW_DEFAULT_HEIGHT));
+
     let label = open_or_focus_window(
         app,
         MAIN_WINDOW_LABEL,
@@ -1409,10 +1422,10 @@ pub fn show_main_window(app: &AppHandle) -> Result<(), AppError> {
             url: "index.html".to_string(),
             title: locales::main_window_title(locale).to_string(),
             specs: WindowSizeSpec {
-                width: 1180.0,
-                height: 760.0,
-                min_width: 900.0,
-                min_height: 620.0,
+                width,
+                height,
+                min_width: MAIN_WINDOW_MIN_WIDTH,
+                min_height: MAIN_WINDOW_MIN_HEIGHT,
             },
             // On macOS, tauri.macos.conf.json sets titleBarStyle: "Overlay"
             // with native traffic lights; decorations: false would conflict.
@@ -1974,7 +1987,68 @@ fn app_is_exiting(app: &AppHandle) -> bool {
         .unwrap_or(false)
 }
 
+/// 启动时把仍处于隐藏状态的主窗口调整为上次完全退出记忆的尺寸
+fn apply_remembered_main_window_size(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+        return;
+    };
+    if window.is_visible().unwrap_or(true) {
+        return;
+    }
+    let Some((width, height)) = load_config()
+        .ok()
+        .as_ref()
+        .and_then(remembered_main_window_size)
+    else {
+        return;
+    };
+    let _ = window.set_size(tauri::LogicalSize::new(width, height));
+}
+
+/// 记住的主窗口尺寸（逻辑像素）：两个维度都不小于最小尺寸时才采用
+fn remembered_main_window_size(config: &AppConfig) -> Option<(f64, f64)> {
+    let width = config.main_window_width? as f64;
+    let height = config.main_window_height? as f64;
+    if width < MAIN_WINDOW_MIN_WIDTH || height < MAIN_WINDOW_MIN_HEIGHT {
+        return None;
+    }
+    Some((width, height))
+}
+
+/// 完全退出前把主窗口当前尺寸写入配置；最大化/最小化状态下沿用上次记忆
+fn save_main_window_size_before_exit(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+        return;
+    };
+    if window.is_maximized().unwrap_or(false) || window.is_minimized().unwrap_or(false) {
+        return;
+    }
+    let Ok(size) = window.inner_size() else {
+        return;
+    };
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let logical = size.to_logical::<f64>(scale);
+    let width = logical.width.round() as u32;
+    let height = logical.height.round() as u32;
+    if width == 0 || height == 0 {
+        return;
+    }
+    let Ok(store) = default_store() else {
+        return;
+    };
+    let Ok(mut config) = store.load_config() else {
+        return;
+    };
+    if config.main_window_width == Some(width) && config.main_window_height == Some(height) {
+        return;
+    }
+    config.main_window_width = Some(width);
+    config.main_window_height = Some(height);
+    let _ = store.save_config(config);
+}
+
 pub(crate) fn mark_app_exiting(app: &AppHandle) {
+    save_main_window_size_before_exit(app);
     if let Some(state) = app.try_state::<RuntimeState>() {
         state.allow_exit();
     }
@@ -2675,6 +2749,8 @@ mod tests {
             open_at_cursor: true,
             notepad_always_on_top: false,
             surface_width: None,
+            main_window_width: None,
+            main_window_height: None,
             surface_height: None,
             toggle_visibility_shortcut: toggle_visibility_shortcut.into(),
             show_tiles_shortcut: String::new(),
@@ -2762,6 +2838,8 @@ mod tests {
             open_at_cursor: true,
             notepad_always_on_top: false,
             surface_width: None,
+            main_window_width: None,
+            main_window_height: None,
             surface_height: None,
             toggle_visibility_shortcut: String::new(),
             show_tiles_shortcut: String::new(),
@@ -2801,6 +2879,8 @@ mod tests {
             open_at_cursor: true,
             notepad_always_on_top: false,
             surface_width: None,
+            main_window_width: None,
+            main_window_height: None,
             surface_height: None,
             toggle_visibility_shortcut: "Ctrl+Shift+H".into(),
             show_tiles_shortcut: "Ctrl+Shift+T".into(),
@@ -2867,6 +2947,55 @@ mod tests {
         assert!(should_save_surface_size_before_close("tile-note-1"));
         assert!(!should_save_surface_size_before_close(MAIN_WINDOW_LABEL));
         assert!(!should_save_surface_size_before_close("settings"));
+    }
+
+    fn config_from_json(json: &str) -> AppConfig {
+        serde_json::from_str(json).expect("config should deserialize")
+    }
+
+    #[test]
+    fn remembers_main_window_size_only_when_valid() {
+        let config = config_from_json(
+            r#"{
+                "globalShortcut": "",
+                "closeToTray": true,
+                "autostart": false,
+                "defaultViewMode": "split",
+                "theme": "light",
+                "mainWindowWidth": 1040,
+                "mainWindowHeight": 680
+            }"#,
+        );
+        assert_eq!(
+            remembered_main_window_size(&config),
+            Some((1040.0, 680.0))
+        );
+
+        // 小于最小尺寸的记忆不采用
+        let config = config_from_json(
+            r#"{
+                "globalShortcut": "",
+                "closeToTray": true,
+                "autostart": false,
+                "defaultViewMode": "split",
+                "theme": "light",
+                "mainWindowWidth": 500,
+                "mainWindowHeight": 400
+            }"#,
+        );
+        assert_eq!(remembered_main_window_size(&config), None);
+
+        // 无记忆时为 None
+        let config = config_from_json(
+            r#"{
+                "globalShortcut": "",
+                "closeToTray": true,
+                "autostart": false,
+                "defaultViewMode": "split",
+                "theme": "light"
+            }"#,
+        );
+        assert_eq!(remembered_main_window_size(&config), None);
     }
 
     #[cfg(target_os = "macos")]

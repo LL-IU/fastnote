@@ -30,6 +30,9 @@ export interface AppConfig {
   splitScrollSync: boolean;
   surfaceWidth?: number;
   surfaceHeight?: number;
+  // 主窗口尺寸（逻辑像素）：完全退出时由后端记录，下次启动沿用
+  mainWindowWidth?: number;
+  mainWindowHeight?: number;
   toggleVisibilityShortcut: string;
   showTilesShortcut: string;
   openAtCursor: boolean;

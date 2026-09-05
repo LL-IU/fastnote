@@ -84,6 +84,11 @@ pub struct AppConfig {
     pub surface_width: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub surface_height: Option<u32>,
+    // 主窗口尺寸（逻辑像素）：完全退出时记录，下次启动沿用
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub main_window_width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub main_window_height: Option<u32>,
     #[serde(default = "default_toggle_visibility_shortcut")]
     pub toggle_visibility_shortcut: String,
     #[serde(default = "default_show_tiles_shortcut")]
@@ -1172,6 +1177,8 @@ impl NoteStore {
             split_scroll_sync: true,
             surface_width: None,
             surface_height: None,
+            main_window_width: None,
+            main_window_height: None,
             toggle_visibility_shortcut: default_toggle_visibility_shortcut(),
             show_tiles_shortcut: default_show_tiles_shortcut(),
             open_at_cursor: default_open_at_cursor(),
@@ -1945,6 +1952,8 @@ mod tests {
             split_scroll_sync: true,
             surface_width: None,
             surface_height: None,
+            main_window_width: None,
+            main_window_height: None,
             toggle_visibility_shortcut: String::new(),
             show_tiles_shortcut: "CmdOrCtrl+Shift+T".into(),
             notes_dir: None,
