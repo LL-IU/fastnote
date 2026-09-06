@@ -30,6 +30,7 @@ import {
 } from "../features/settings/api";
 import type { AppConfig, ViewMode } from "../features/settings/types";
 import { normalizeTileColor } from "../features/settings/tileColor";
+import { applyAppearance } from "../features/settings/theme";
 import { webdavSyncNow } from "../features/settings/webdav";
 import { BackgroundLayer } from "./BackgroundLayer";
 import { POPUP_VIEWPORT_MARGIN, useViewportPopupPosition } from "./popupPosition";
@@ -353,6 +354,13 @@ export function MainWindow({
   const [settingsConfig, setSettingsConfig] = useState<AppConfig | null>(initialConfig ?? null);
   const [savedDataDir, setSavedDataDir] = useState<string | null>(initialConfig?.dataDir ?? null);
   const [noteTransitionKey, setNoteTransitionKey] = useState(0);
+
+  // 自定义颜色（主窗口/列表）随配置即时生效
+  useEffect(() => {
+    if (settingsConfig) {
+      applyAppearance(settingsConfig);
+    }
+  }, [settingsConfig]);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleteExiting, setDeleteExiting] = useState(false);
   const [pinnedTileIds, setPinnedTileIds] = useState<Set<string>>(new Set());
@@ -365,9 +373,6 @@ export function MainWindow({
   const [renamingCategory, setRenamingCategory] = useState<string | null>(null);
   const [renameCategoryValue, setRenameCategoryValue] = useState("");
   const [dragOverCategory, setDragOverCategory] = useState<string | null>(null);
-  const [settingsOverlay, setSettingsOverlay] = useState(() =>
-    typeof window !== "undefined" ? window.innerWidth < 1080 : true,
-  );
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const [splitRatio, setSplitRatio] = useState(0.5);
@@ -792,12 +797,6 @@ export function MainWindow({
     window.addEventListener("focus", handleFocus);
     return () => window.removeEventListener("focus", handleFocus);
   }, [refreshNotes]);
-
-  useEffect(() => {
-    const onResize = () => setSettingsOverlay(window.innerWidth < 1080);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
 
   useEffect(() => {
     const unlisten = listen<string>("open-external-file", (event) => {
@@ -2859,17 +2858,14 @@ export function MainWindow({
               </div>
             </div>
           </div>
-          {settingsConfig && settingsOpen && settingsOverlay && (
+          {settingsConfig && settingsOpen && (
             <div className="absolute inset-0 z-20" onClick={handleCloseSettings} />
           )}
+          {/* 设置/关于面板：Sheet 浮层模式（借鉴 shadcn/ui Sheet），始终悬浮在文档上方，不挤占编辑区宽度 */}
           <div
-            className={`relative shrink-0 overflow-hidden h-full transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+            className={`absolute right-0 top-0 bottom-0 z-30 overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
               sidePanelExpanded || mountedSidePanel ? "border-l border-paper-deep/20" : "border-l-0"
-            } ${
-              settingsOverlay
-                ? `absolute right-0 top-0 bottom-0 z-30 ${visibleSidePanel ? "w-[360px] shadow-xl" : "w-0"}`
-                : `${sidePanelExpanded ? "w-[360px]" : "w-0"}`
-            }`}
+            } ${visibleSidePanel ? "w-[360px] shadow-xl" : "w-0"}`}
           >
             <div
               className={`absolute inset-0 w-[360px] h-full transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${

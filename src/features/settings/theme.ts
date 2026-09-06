@@ -1,10 +1,22 @@
-import type { ThemeOption } from "./types";
+import { normalizeHexColor } from "./tileColor";
+import type { AppConfig, ThemeOption } from "./types";
 
-function resolveTheme(option: ThemeOption): "light" | "dark" {
+export type ResolvedTheme = "light" | "dark";
+
+type AppearanceConfig = Pick<
+  AppConfig,
+  "theme" | "mainWindowColorLight" | "mainWindowColorDark" | "noteListColorLight" | "noteListColorDark"
+>;
+
+function resolveTheme(option: ThemeOption): ResolvedTheme {
   if (option === "system") {
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
   return option;
+}
+
+export function resolvedTheme(): ResolvedTheme {
+  return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
 }
 
 export function applyTheme(option: ThemeOption): void {
@@ -32,7 +44,14 @@ export function watchSystemTheme(option: ThemeOption): () => void {
   if (option !== "system") return () => {};
 
   const mql = window.matchMedia("(prefers-color-scheme: dark)");
-  const handler = () => applyTheme("system");
+  const handler = () => {
+    // 系统主题切换：用最近一次外观配置重应用（保留自定义颜色按新主题解析）
+    if (lastAppearanceConfig) {
+      applyAppearance(lastAppearanceConfig);
+    } else {
+      applyTheme("system");
+    }
+  };
   mql.addEventListener("change", handler);
 
   const cleanup = () => {
@@ -45,4 +64,48 @@ export function watchSystemTheme(option: ThemeOption): () => void {
   };
   systemListener = cleanup;
   return cleanup;
+}
+
+/// 最近一次外观配置：系统主题切换时用它重应用自定义颜色
+let lastAppearanceConfig: AppearanceConfig | null = null;
+
+/// 主题 + 自定义颜色一起应用。设置项底色按列表色用 color-mix 自动加深。
+export function applyAppearance(config: AppearanceConfig): void {
+  lastAppearanceConfig = config;
+  applyTheme(config.theme);
+  applyCustomColors(config, resolvedTheme());
+}
+
+/// 自定义颜色（主窗口背景 / 笔记列表），浅色与深色主题各一套互不干扰；
+/// 空值表示该主题跟随默认。设置项底色按列表色用 color-mix 自动加深。
+export function applyCustomColors(
+  config: Pick<
+    AppConfig,
+    "mainWindowColorLight" | "mainWindowColorDark" | "noteListColorLight" | "noteListColorDark"
+  >,
+  resolved: ResolvedTheme,
+): void {
+  const root = document.documentElement;
+  const setOrClear = (name: string, value: string | undefined) => {
+    if (value) {
+      root.style.setProperty(name, value);
+    } else {
+      root.style.removeProperty(name);
+    }
+  };
+
+  const pick = (light?: string, dark?: string) =>
+    normalizeHexColor(resolved === "dark" ? dark : light);
+
+  setOrClear("--color-cloud", pick(config.mainWindowColorLight, config.mainWindowColorDark) || undefined);
+  const noteList = pick(config.noteListColorLight, config.noteListColorDark);
+  setOrClear("--color-paper", noteList || undefined);
+  if (noteList) {
+    // 设置项底色比列表深一点；边框/轨道再深一档，保持层次
+    root.style.setProperty("--color-paper-warm", `color-mix(in oklch, ${noteList} 93%, black)`);
+    root.style.setProperty("--color-paper-deep", `color-mix(in oklch, ${noteList} 85%, black)`);
+  } else {
+    root.style.removeProperty("--color-paper-warm");
+    root.style.removeProperty("--color-paper-deep");
+  }
 }

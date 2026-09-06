@@ -1148,8 +1148,8 @@ pub fn setup_desktop(app: &mut App) -> Result<(), Box<dyn Error>> {
     schedule_notepad_prewarm(app.handle());
 
     if !std::env::args().any(|a| a == "--silent") {
-        // 主窗口由 tauri.conf 静态创建（隐藏状态），显示前先沿用上次完全退出时记忆的尺寸
-        apply_remembered_main_window_size(app.handle());
+        // 主窗口由 tauri.conf 静态创建（隐藏状态），显示前先沿用上次完全退出时记忆的大小和位置
+        apply_remembered_main_window_bounds(app.handle());
         if let Err(error) = show_main_window(app.handle()) {
             eprintln!("failed to show main window on startup: {error}");
         }
@@ -1187,6 +1187,13 @@ pub fn handle_window_event(window: &Window, event: &WindowEvent) {
         if let Some(webview) = window.app_handle().get_webview_window(window.label()) {
             save_surface_size(&webview);
         }
+    }
+
+    // 主窗口大小/位置一有变化就记录（防抖后落盘），供下次启动沿用
+    if window.label() == MAIN_WINDOW_LABEL
+        && matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_))
+    {
+        schedule_main_window_state_save(window.app_handle());
     }
 
     if window.label() != MAIN_WINDOW_LABEL {
@@ -1987,22 +1994,54 @@ fn app_is_exiting(app: &AppHandle) -> bool {
         .unwrap_or(false)
 }
 
-/// 启动时把仍处于隐藏状态的主窗口调整为上次完全退出记忆的尺寸
-fn apply_remembered_main_window_size(app: &AppHandle) {
+/// 启动时把仍处于隐藏状态的主窗口调整为上次完全退出记忆的大小和位置
+fn apply_remembered_main_window_bounds(app: &AppHandle) {
     let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
         return;
     };
     if window.is_visible().unwrap_or(true) {
         return;
     }
-    let Some((width, height)) = load_config()
-        .ok()
-        .as_ref()
-        .and_then(remembered_main_window_size)
-    else {
+    let Ok(config) = load_config() else {
+        return;
+    };
+    let Some((width, height)) = remembered_main_window_size(&config) else {
         return;
     };
     let _ = window.set_size(tauri::LogicalSize::new(width, height));
+
+    // 位置：换算为物理坐标后须与某个显示器保有足够交集，
+    // 避免显示器被移除后窗口恢复到看不见的地方
+    if let Some((x, y)) = remembered_main_window_position(&config) {
+        let scale = window.scale_factor().unwrap_or(1.0);
+        let monitors: Vec<(f64, f64, f64, f64)> = app
+            .available_monitors()
+            .unwrap_or_default()
+            .iter()
+            .map(|monitor| {
+                let position = monitor.position();
+                let size = monitor.size();
+                (
+                    position.x as f64,
+                    position.y as f64,
+                    size.width as f64,
+                    size.height as f64,
+                )
+            })
+            .collect();
+        let physical_x = x * scale;
+        let physical_y = y * scale;
+        if position_on_visible_monitor(
+            physical_x,
+            physical_y,
+            width * scale,
+            height * scale,
+            &monitors,
+        ) {
+            let _ =
+                window.set_position(tauri::PhysicalPosition::new(physical_x as i32, physical_y as i32));
+        }
+    }
 }
 
 /// 记住的主窗口尺寸（逻辑像素）：两个维度都不小于最小尺寸时才采用
@@ -2015,8 +2054,54 @@ fn remembered_main_window_size(config: &AppConfig) -> Option<(f64, f64)> {
     Some((width, height))
 }
 
-/// 完全退出前把主窗口当前尺寸写入配置；最大化/最小化状态下沿用上次记忆
-fn save_main_window_size_before_exit(app: &AppHandle) {
+/// 记住的主窗口位置（逻辑像素，可为负：显示器在主屏左侧/上方时）
+fn remembered_main_window_position(config: &AppConfig) -> Option<(f64, f64)> {
+    Some((
+        config.main_window_x? as f64,
+        config.main_window_y? as f64,
+    ))
+}
+
+/// 记忆位置至少要有 80px 落在某个显示器内，否则视为无效（如显示器被移除）
+fn position_on_visible_monitor(
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    monitors: &[(f64, f64, f64, f64)],
+) -> bool {
+    const MARGIN: f64 = 80.0;
+    monitors.iter().any(|(mx, my, mw, mh)| {
+        let overlap_x = (x + width).min(mx + mw) - x.max(*mx);
+        let overlap_y = (y + height).min(my + mh) - y.max(*my);
+        overlap_x >= MARGIN && overlap_y >= MARGIN
+    })
+}
+
+/// 拖动/缩放过程中 Moved/Resized 事件高频触发，防抖后只落盘最后一次状态
+const MAIN_WINDOW_SAVE_DEBOUNCE_MS: u64 = 400;
+static MAIN_WINDOW_SAVE_GENERATION: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+fn schedule_main_window_state_save(app: &AppHandle) {
+    let generation =
+        MAIN_WINDOW_SAVE_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(MAIN_WINDOW_SAVE_DEBOUNCE_MS));
+        // 期间又有新变更，则由后一次负责保存
+        if MAIN_WINDOW_SAVE_GENERATION.load(std::sync::atomic::Ordering::SeqCst) != generation {
+            return;
+        }
+        let main_thread_handle = handle.clone();
+        let _ = handle.run_on_main_thread(move || {
+            save_main_window_state(&main_thread_handle);
+        });
+    });
+}
+
+/// 把主窗口当前大小和位置写入配置；最大化/最小化状态下沿用上次记忆
+fn save_main_window_state(app: &AppHandle) {
     let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
         return;
     };
@@ -2027,28 +2112,44 @@ fn save_main_window_size_before_exit(app: &AppHandle) {
         return;
     };
     let scale = window.scale_factor().unwrap_or(1.0);
-    let logical = size.to_logical::<f64>(scale);
-    let width = logical.width.round() as u32;
-    let height = logical.height.round() as u32;
+    let logical_size = size.to_logical::<f64>(scale);
+    let width = logical_size.width.round() as u32;
+    let height = logical_size.height.round() as u32;
     if width == 0 || height == 0 {
         return;
     }
+    let logical_position = window
+        .outer_position()
+        .ok()
+        .map(|position| position.to_logical::<f64>(scale));
+
     let Ok(store) = default_store() else {
         return;
     };
     let Ok(mut config) = store.load_config() else {
         return;
     };
-    if config.main_window_width == Some(width) && config.main_window_height == Some(height) {
+    let same_size =
+        config.main_window_width == Some(width) && config.main_window_height == Some(height);
+    let same_position = logical_position
+        .map(|p| {
+            config.main_window_x == Some(p.x.round() as i32)
+                && config.main_window_y == Some(p.y.round() as i32)
+        })
+        .unwrap_or_else(|| config.main_window_x.is_none() && config.main_window_y.is_none());
+    if same_size && same_position {
         return;
     }
     config.main_window_width = Some(width);
     config.main_window_height = Some(height);
+    if let Some(p) = logical_position {
+        config.main_window_x = Some(p.x.round() as i32);
+        config.main_window_y = Some(p.y.round() as i32);
+    }
     let _ = store.save_config(config);
 }
 
 pub(crate) fn mark_app_exiting(app: &AppHandle) {
-    save_main_window_size_before_exit(app);
     if let Some(state) = app.try_state::<RuntimeState>() {
         state.allow_exit();
     }
@@ -2726,7 +2827,14 @@ mod tests {
             note_auto_save: true,
             note_surface_auto_save: true,
             tile_color: "#f6f3ec".into(),
-            tile_color_mode: "system".into(),
+            tile_color_light: String::new(),
+            tile_color_dark: String::new(),
+            main_window_color_light: String::new(),
+            main_window_color_dark: String::new(),
+            note_list_color_light: String::new(),
+            note_list_color_dark: String::new(),
+            tile_text_color_light: String::new(),
+            tile_text_color_dark: String::new(),
             theme: "light".into(),
             font_size: 14,
             surface_font_size: 14,
@@ -2751,6 +2859,8 @@ mod tests {
             surface_width: None,
             main_window_width: None,
             main_window_height: None,
+            main_window_x: None,
+            main_window_y: None,
             surface_height: None,
             toggle_visibility_shortcut: toggle_visibility_shortcut.into(),
             show_tiles_shortcut: String::new(),
@@ -2815,7 +2925,14 @@ mod tests {
             note_auto_save: true,
             note_surface_auto_save: true,
             tile_color: "#f6f3ec".into(),
-            tile_color_mode: "system".into(),
+            tile_color_light: String::new(),
+            tile_color_dark: String::new(),
+            main_window_color_light: String::new(),
+            main_window_color_dark: String::new(),
+            note_list_color_light: String::new(),
+            note_list_color_dark: String::new(),
+            tile_text_color_light: String::new(),
+            tile_text_color_dark: String::new(),
             theme: "light".into(),
             font_size: 14,
             surface_font_size: 14,
@@ -2840,6 +2957,8 @@ mod tests {
             surface_width: None,
             main_window_width: None,
             main_window_height: None,
+            main_window_x: None,
+            main_window_y: None,
             surface_height: None,
             toggle_visibility_shortcut: String::new(),
             show_tiles_shortcut: String::new(),
@@ -2856,7 +2975,14 @@ mod tests {
             note_auto_save: false,
             note_surface_auto_save: false,
             tile_color: "#efe8dc".into(),
-            tile_color_mode: "custom".into(),
+            tile_color_light: String::new(),
+            tile_color_dark: String::new(),
+            main_window_color_light: String::new(),
+            main_window_color_dark: String::new(),
+            note_list_color_light: String::new(),
+            note_list_color_dark: String::new(),
+            tile_text_color_light: String::new(),
+            tile_text_color_dark: String::new(),
             theme: "dark".into(),
             font_size: 16,
             surface_font_size: 16,
@@ -2881,6 +3007,8 @@ mod tests {
             surface_width: None,
             main_window_width: None,
             main_window_height: None,
+            main_window_x: None,
+            main_window_y: None,
             surface_height: None,
             toggle_visibility_shortcut: "Ctrl+Shift+H".into(),
             show_tiles_shortcut: "Ctrl+Shift+T".into(),
@@ -2996,6 +3124,56 @@ mod tests {
             }"#,
         );
         assert_eq!(remembered_main_window_size(&config), None);
+    }
+
+    #[test]
+    fn keeps_main_window_position_only_when_visible_on_a_monitor() {
+        // 双显示器：主屏 1920x1080，左侧副屏 1920x1080（负坐标区）
+        let monitors = vec![
+            (0.0, 0.0, 1920.0, 1080.0),
+            (-1920.0, 0.0, 1920.0, 1080.0),
+        ];
+
+        // 完全落在主屏内
+        assert!(position_on_visible_monitor(
+            100.0,
+            100.0,
+            1094.0,
+            697.0,
+            &monitors
+        ));
+        // 完全落在左侧副屏（负坐标）
+        assert!(position_on_visible_monitor(
+            -1800.0,
+            100.0,
+            1094.0,
+            697.0,
+            &monitors
+        ));
+        // 跨屏但两边都有超过 80px 的可见部分
+        assert!(position_on_visible_monitor(
+            -40.0,
+            100.0,
+            1094.0,
+            697.0,
+            &monitors
+        ));
+        // 显示器已被移除：坐标落在无屏区域
+        assert!(!position_on_visible_monitor(
+            5000.0,
+            100.0,
+            1094.0,
+            697.0,
+            &monitors
+        ));
+        // 只压到屏幕边缘 30px，不足 80px 可见余量
+        assert!(!position_on_visible_monitor(
+            1890.0,
+            100.0,
+            1094.0,
+            697.0,
+            &monitors
+        ));
     }
 
     #[cfg(target_os = "macos")]

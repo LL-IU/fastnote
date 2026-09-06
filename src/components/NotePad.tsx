@@ -23,14 +23,18 @@ import {
   startCurrentWindowDragWithOffset,
   startCurrentWindowResize,
 } from "../features/windows/controls";
+import type { ResolvedTheme } from "../features/settings/theme";
+import { resolvedTheme } from "../features/settings/theme";
 import type { ResizeDirection } from "../features/windows/controls";
 import { getConfig } from "../features/settings/api";
 import {
   DEFAULT_TILE_COLOR,
+  SYSTEM_TILE_COLOR_DARK,
+  SYSTEM_TILE_COLOR_LIGHT,
+  normalizeHexColor,
   normalizeTileColor,
-  resolveTileColor,
 } from "../features/settings/tileColor";
-import type { TileColorMode } from "../features/settings/types";
+
 import {
   shouldEnterPadFromTileOnDoubleClick,
   shouldReturnToTileAfterManualSave,
@@ -61,6 +65,8 @@ interface NotePadProps {
   initialSurfaceMode?: NoteSurfaceMode;
   initialAutoSave?: boolean;
   initialTileColor?: string;
+  initialTileColorDark?: string;
+  initialTileTextColor?: string;
 }
 
 const surfaceResizeHandles: Array<{
@@ -124,6 +130,8 @@ export function NotePad({
   initialSurfaceMode = "pad",
   initialAutoSave = true,
   initialTileColor = DEFAULT_TILE_COLOR,
+  initialTileColorDark = "",
+  initialTileTextColor = "",
 }: NotePadProps) {
   const { t } = useTranslation();
   const [surfaceMode, setSurfaceMode] = useState<NoteSurfaceMode>(initialSurfaceMode);
@@ -134,8 +142,11 @@ export function NotePad({
   const [content, setContent] = useState("");
   const [status, setStatus] = useState<NotePadStatus>("empty");
   const [noteSurfaceAutoSave, setNoteSurfaceAutoSave] = useState(initialAutoSave);
-  const [tileColorRaw, setTileColorRaw] = useState(normalizeTileColor(initialTileColor));
-  const [tileColorMode, setTileColorMode] = useState<TileColorMode>("system");
+  // 磁贴颜色：浅色/深色主题各一套（空 = 跟随主题默认）
+  const [tileColorLight, setTileColorLight] = useState(normalizeTileColor(initialTileColor));
+  const [tileColorDark, setTileColorDark] = useState(normalizeHexColor(initialTileColorDark));
+  const [tileTextLight, setTileTextLight] = useState(normalizeHexColor(initialTileTextColor));
+  const [tileTextDark, setTileTextDark] = useState(normalizeHexColor(initialTileTextColor));
   const [surfaceFontSize, setSurfaceFontSize] = useState(14);
   const [tileRenderMarkdown, setTileRenderMarkdown] = useState(false);
   const [tileDoubleClickToEdit, setTileDoubleClickToEdit] = useState(false);
@@ -144,9 +155,18 @@ export function NotePad({
   // 转为磁贴时沿用该状态（置顶→磁贴置顶，置底→磁贴置底）。
   const [pinnedTop, setPinnedTop] = useState(false);
   const [pinnedBottom, setPinnedBottom] = useState(false);
-  const [tileColor, setTileColor] = useState(() =>
-    resolveTileColor("system", normalizeTileColor(initialTileColor)),
+  const [theme, setTheme] = useState<ResolvedTheme>(resolvedTheme());
+  // 按当前主题解析磁贴背景/文字（空值回退主题默认）
+  const tileColor = useMemo(
+    () =>
+      theme === "dark"
+        ? normalizeTileColor(tileColorDark || SYSTEM_TILE_COLOR_DARK)
+        : normalizeTileColor(tileColorLight || SYSTEM_TILE_COLOR_LIGHT),
+    [theme, tileColorDark, tileColorLight],
   );
+  const tileTextColor = theme === "dark"
+    ? normalizeHexColor(tileTextDark)
+    : normalizeHexColor(tileTextLight);
   const [isExiting, setIsExiting] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
   const contentRef = useRef<HTMLTextAreaElement>(null);
@@ -159,10 +179,6 @@ export function NotePad({
   contentValueRef.current = content;
   const titleValueRef = useRef(title);
   titleValueRef.current = title;
-  const tileColorModeRef = useRef(tileColorMode);
-  tileColorModeRef.current = tileColorMode;
-  const tileColorRawRef = useRef(tileColorRaw);
-  tileColorRawRef.current = tileColorRaw;
   const surfaceModeRef = useRef(surfaceMode);
   surfaceModeRef.current = surfaceMode;
   const isStandby = useRef(
@@ -222,11 +238,10 @@ export function NotePad({
           setTileRenderMarkdown(loadedConfig.tileRenderMarkdown ?? false);
           setTileDoubleClickToEdit(loadedConfig.tileDoubleClickToEdit ?? false);
           setTileSaveReturnsToPin(loadedConfig.tileSaveReturnsToPin ?? false);
-          setTileColorRaw(normalizeTileColor(loadedConfig.tileColor));
-          setTileColorMode(loadedConfig.tileColorMode ?? "system");
-          setTileColor(
-            resolveTileColor(loadedConfig.tileColorMode ?? "system", loadedConfig.tileColor),
-          );
+          setTileColorLight(normalizeTileColor(loadedConfig.tileColorLight || loadedConfig.tileColor));
+          setTileColorDark(normalizeHexColor(loadedConfig.tileColorDark));
+          setTileTextLight(normalizeHexColor(loadedConfig.tileTextColorLight));
+          setTileTextDark(normalizeHexColor(loadedConfig.tileTextColorDark));
           // 应用「小窗默认置顶」设置（仅小窗模式；磁贴恒为置顶）
           const topDefault = loadedConfig.notepadAlwaysOnTop ?? false;
           setPinnedTop(topDefault);
@@ -288,19 +303,24 @@ export function NotePad({
 
   useEffect(() => {
     const unlisten = listen<{
-      tileColor?: string;
-      tileColorMode?: TileColorMode;
       surfaceFontSize?: number;
       tileRenderMarkdown?: boolean;
       tileDoubleClickToEdit?: boolean;
       tileSaveReturnsToPin?: boolean;
       notepadAlwaysOnTop?: boolean;
+      tileColorLight?: string;
+      tileColorDark?: string;
+      tileTextColorLight?: string;
+      tileTextColorDark?: string;
     }>("config-changed", (event) => {
-      const mode = event.payload.tileColorMode ?? tileColorModeRef.current;
-      const raw = event.payload.tileColor ?? tileColorRawRef.current;
-      setTileColorMode(mode);
-      setTileColorRaw(normalizeTileColor(raw));
-      setTileColor(resolveTileColor(mode, raw));
+      if (event.payload.tileColorLight != null)
+        setTileColorLight(normalizeTileColor(event.payload.tileColorLight));
+      if (event.payload.tileColorDark != null)
+        setTileColorDark(normalizeHexColor(event.payload.tileColorDark));
+      if (event.payload.tileTextColorLight != null)
+        setTileTextLight(normalizeHexColor(event.payload.tileTextColorLight));
+      if (event.payload.tileTextColorDark != null)
+        setTileTextDark(normalizeHexColor(event.payload.tileTextColorDark));
       if (event.payload.surfaceFontSize != null) setSurfaceFontSize(event.payload.surfaceFontSize);
       if (event.payload.tileRenderMarkdown != null)
         setTileRenderMarkdown(event.payload.tileRenderMarkdown);
@@ -321,17 +341,17 @@ export function NotePad({
     };
   }, []);
 
+  // 跟踪主题切换：磁贴浅/深两套颜色随 data-theme 即时解析
   useEffect(() => {
-    if (tileColorMode !== "system") return;
     const observer = new MutationObserver(() => {
-      setTileColor(resolveTileColor("system", tileColorRaw));
+      setTheme(resolvedTheme());
     });
     observer.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["data-theme"],
     });
     return () => observer.disconnect();
-  }, [tileColorMode, tileColorRaw]);
+  }, []);
 
   useEffect(() => {
     let myLabel = "";
@@ -766,6 +786,7 @@ export function NotePad({
           title={tileTitle || undefined}
           content={content}
           color={tileColor}
+          textColor={tileTextColor || undefined}
           fontSize={surfaceFontSize}
           renderMarkdown={tileRenderMarkdown}
           imageBaseDir={imageBaseDir ?? undefined}

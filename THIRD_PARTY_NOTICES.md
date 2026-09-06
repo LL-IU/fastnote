@@ -11,3 +11,11 @@ HarmonyOS Sans Fonts Software is licensed under the HarmonyOS Sans Fonts License
 - `src/assets/fonts/LICENSE_Fonts`
 
 The font is bundled only as part of this application and is not redistributed or sold as a standalone font package.
+
+## react-colorful
+
+fastnote uses the `react-colorful` library (https://github.com/omgovich/react-colorful) for the in-panel color picker.
+
+Copyright (c) 2019-2024 Vlad Shilov <omgovich@yandex.ru>
+
+Released under the MIT License: https://github.com/omgovich/react-colorful/blob/master/LICENSE

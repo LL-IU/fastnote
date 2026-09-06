@@ -1,6 +1,6 @@
 {
   "name": "fastnote",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "type": "module",
   "scripts": {
@@ -23,6 +23,7 @@
     "indent-textarea": "^4.0.0",
     "katex": "^0.16.47",
     "react": "^19.1.0",
+    "react-colorful": "^5.8.1",
     "react-dom": "^19.1.0",
     "react-i18next": "^17.0.8",
     "react-markdown": "^10.1.0",

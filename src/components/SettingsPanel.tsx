@@ -6,9 +6,10 @@ import type {
   AppConfig,
   BackgroundFit,
   ThemeOption,
-  TileColorMode,
   ViewMode,
 } from "../features/settings/types";
+
+type ColorThemeMode = "light" | "dark";
 import {
   formatHeldKeys,
   hotkeyToConfigString,
@@ -16,8 +17,9 @@ import {
   shortcutPlatform,
 } from "../features/settings/shortcutRecorder";
 import { useShortcutRecorder } from "../features/settings/useShortcutRecorder";
-import { DEFAULT_TILE_COLOR, normalizeTileColor } from "../features/settings/tileColor";
-import { applyTheme, watchSystemTheme } from "../features/settings/theme";
+import { normalizeHexColor } from "../features/settings/tileColor";
+import { HexColorPicker } from "react-colorful";
+import { applyTheme, resolvedTheme, watchSystemTheme } from "../features/settings/theme";
 import {
   webdavGetConfig,
   webdavRestore,
@@ -41,16 +43,11 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
   const setConfigValue = <Key extends keyof AppConfig>(key: Key, value: AppConfig[Key]) => {
     onChange({ ...config, [key]: value });
   };
-  const tileColorModes = useMemo<Array<{ value: TileColorMode; label: string }>>(
+  const [colorThemeMode, setColorThemeMode] = useState<ColorThemeMode>(resolvedTheme());
+  const colorThemeModes = useMemo<Array<{ value: ColorThemeMode; label: string }>>(
     () => [
-      {
-        value: "system",
-        label: t("settings.tileColor.followTheme", { defaultValue: "跟随主题" }),
-      },
-      {
-        value: "custom",
-        label: t("settings.tileColor.custom", { defaultValue: "自定义" }),
-      },
+      { value: "light", label: t("settings.colors.light", { defaultValue: "浅色" }) },
+      { value: "dark", label: t("settings.colors.dark", { defaultValue: "深色" }) },
     ],
     [t],
   );
@@ -86,7 +83,7 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
   );
 
   return (
-    <aside className="w-[360px] h-full shrink-0 border-l border-paper-deep/30 bg-cloud/92 backdrop-blur-sm flex flex-col">
+    <aside className="w-[360px] h-full shrink-0 border-l border-paper-deep/30 bg-cloud/97 flex flex-col">
       <div className="flex items-center justify-between h-11 px-4 border-b border-paper-deep/25">
         <h2 className="text-[13px] font-display font-medium text-ink-soft">
           {t("settings.title", { defaultValue: "应用设置" })}
@@ -111,8 +108,8 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto scrollbar-hidden px-4 py-4 space-y-5">
-        <section className="space-y-2">
+      <div className="flex-1 overflow-y-auto scrollbar-hidden px-3 py-3 space-y-4">
+        <section className="space-y-1.5">
           <label className="block text-[11px] font-body text-ink-faint">
             {t("settings.theme.label", { defaultValue: "主题" })}
           </label>
@@ -127,7 +124,7 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
           />
         </section>
 
-        <section className="space-y-2">
+        <section className="space-y-1.5">
           <label className="block text-[11px] font-body text-ink-faint">
             {t("settings.dataDir", { defaultValue: "数据目录" })}
           </label>
@@ -148,7 +145,7 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
           </div>
         </section>
 
-        <section className="space-y-2">
+        <section className="space-y-1.5">
           <ToggleRow
             label={t("settings.closeToTray", { defaultValue: "关闭到托盘" })}
             checked={config.closeToTray}
@@ -212,7 +209,7 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
         </section>
 
         {/* 快捷键功能设置区域，与上方常规设置分开 */}
-        <section className="space-y-2">
+        <section className="space-y-1.5">
           <ToggleRow
             label={t("settings.tileCtrlClose", { defaultValue: "Ctrl+右键快速关闭磁贴" })}
             checked={config.tileCtrlClose}
@@ -252,11 +249,11 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
           </div>
         </section>
 
-        <section className="space-y-2">
+        <section className="space-y-1.5">
           <label className="block text-[11px] font-body text-ink-faint">
             {t("settings.fontSize.editor", { defaultValue: "编辑器字号" })}
           </label>
-          <div className="flex items-center gap-3 h-9 rounded-lg px-2.5 bg-paper-warm/45 border border-paper-deep/25">
+          <div className="flex items-center gap-2.5 h-8 rounded-lg px-2 bg-paper-warm/45 border border-paper-deep/25">
             <input
               type="range"
               min={8}
@@ -272,11 +269,11 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
           </div>
         </section>
 
-        <section className="space-y-2">
+        <section className="space-y-1.5">
           <label className="block text-[11px] font-body text-ink-faint">
             {t("settings.fontSize.surface", { defaultValue: "小窗/磁贴字号" })}
           </label>
-          <div className="flex items-center gap-3 h-9 rounded-lg px-2.5 bg-paper-warm/45 border border-paper-deep/25">
+          <div className="flex items-center gap-2.5 h-8 rounded-lg px-2 bg-paper-warm/45 border border-paper-deep/25">
             <input
               type="range"
               min={8}
@@ -292,11 +289,11 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
           </div>
         </section>
 
-        <section className="space-y-2">
+        <section className="space-y-1.5">
           <label className="block text-[11px] font-body text-ink-faint">
             {t("settings.tabIndentSize", { defaultValue: "Tab 缩进宽��" })}
           </label>
-          <div className="flex items-center gap-3 h-9 rounded-lg px-2.5 bg-paper-warm/45 border border-paper-deep/25">
+          <div className="flex items-center gap-2.5 h-8 rounded-lg px-2 bg-paper-warm/45 border border-paper-deep/25">
             <input
               type="range"
               min={1}
@@ -312,43 +309,70 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
           </div>
         </section>
 
-        <section className="space-y-2">
-          <label className="block text-[11px] font-body text-ink-faint">
-            {t("settings.tileColor.label", { defaultValue: "磁贴颜色" })}
-          </label>
-          <SlidingButtonGroup
-            options={tileColorModes}
-            value={config.tileColorMode}
-            onChange={(v: TileColorMode) => setConfigValue("tileColorMode", v)}
+        <section className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <label className="block text-[11px] font-body text-ink-faint">
+              {t("settings.colors.label", { defaultValue: "颜色" })}
+            </label>
+            <SlidingButtonGroup
+              options={colorThemeModes}
+              value={colorThemeMode}
+              onChange={(v: ColorThemeMode) => setColorThemeMode(v)}
+            />
+          </div>
+          <ColorRow
+            label={t("settings.colors.mainWindow", { defaultValue: "主窗口背景" })}
+            value={
+              colorThemeMode === "dark" ? config.mainWindowColorDark : config.mainWindowColorLight
+            }
+            onChange={(value) =>
+              setConfigValue(
+                colorThemeMode === "dark" ? "mainWindowColorDark" : "mainWindowColorLight",
+                value,
+              )
+            }
           />
-          {config.tileColorMode === "custom" && (
-            <div className="flex items-center gap-2">
-              <input
-                type="color"
-                value={normalizeTileColor(config.tileColor)}
-                onChange={(event) => setConfigValue("tileColor", event.target.value)}
-                className="w-10 h-8 rounded-lg border border-paper-deep/40 bg-paper-warm/70 cursor-pointer"
-              />
-              <input
-                type="text"
-                value={config.tileColor}
-                onChange={(event) => setConfigValue("tileColor", event.target.value)}
-                placeholder="#faf7ef"
-                spellCheck={false}
-                className="min-w-0 flex-1 h-8 px-2.5 rounded-lg bg-paper-warm/70 border border-paper-deep/40 text-[12px] font-mono text-ink-soft outline-none"
-              />
-              <button
-                type="button"
-                onClick={() => setConfigValue("tileColor", DEFAULT_TILE_COLOR)}
-                className="h-8 px-2.5 rounded-lg border border-paper-deep/45 text-[11px] text-ink-faint hover:text-bamboo hover:bg-bamboo-mist/50 transition-colors cursor-pointer whitespace-nowrap"
-              >
-                {t("common.default", { defaultValue: "默认" })}
-              </button>
-            </div>
-          )}
+          <ColorRow
+            label={t("settings.colors.noteList", { defaultValue: "笔记列表背景" })}
+            value={
+              colorThemeMode === "dark" ? config.noteListColorDark : config.noteListColorLight
+            }
+            onChange={(value) =>
+              setConfigValue(
+                colorThemeMode === "dark" ? "noteListColorDark" : "noteListColorLight",
+                value,
+              )
+            }
+          />
+          <ColorRow
+            label={t("settings.colors.tileBg", { defaultValue: "磁贴背景" })}
+            value={colorThemeMode === "dark" ? config.tileColorDark : config.tileColorLight}
+            onChange={(value) =>
+              setConfigValue(
+                colorThemeMode === "dark" ? "tileColorDark" : "tileColorLight",
+                value,
+              )
+            }
+          />
+          <ColorRow
+            label={t("settings.colors.tileText", { defaultValue: "磁贴文字颜色" })}
+            value={colorThemeMode === "dark" ? config.tileTextColorDark : config.tileTextColorLight}
+            onChange={(value) =>
+              setConfigValue(
+                colorThemeMode === "dark" ? "tileTextColorDark" : "tileTextColorLight",
+                value,
+              )
+            }
+          />
+          <p className="text-[10px] leading-relaxed text-ink-ghost/75">
+            {t("settings.colors.hint", {
+              defaultValue:
+                "浅色/深色主题各自一套颜色互不影响；留空跟随该主题默认；设置项底色随列表颜色自动加深",
+            })}
+          </p>
         </section>
 
-        <section className="space-y-2">
+        <section className="space-y-1.5">
           <label className="block text-[11px] font-body text-ink-faint">
             {t("settings.background.label", { defaultValue: "背景图片" })}
           </label>
@@ -446,7 +470,7 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
           />
         </section>
 
-        <section className="space-y-2">
+        <section className="space-y-1.5">
           <label className="block text-[11px] font-body text-ink-faint">
             {t("settings.defaultView.label", { defaultValue: "默认视图" })}
           </label>
@@ -641,7 +665,7 @@ function WebdavSettings() {
     "h-8 px-3 rounded-lg border border-paper-deep/45 text-[11px] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed";
 
   return (
-    <section className="space-y-2">
+    <section className="space-y-1.5">
       <label className="block text-[11px] font-body text-ink-faint">
         {t("settings.webdav.label", { defaultValue: "WebDAV 同步（坚果云）" })}
       </label>
@@ -748,13 +772,111 @@ function WebdavSettings() {
   );
 }
 
+interface ColorRowProps {
+  label: string;
+  /// 空字符串表示跟随主题默认
+  value?: string;
+  onChange: (value: string) => void;
+}
+
+/// 色块按钮（展开状态由行组件管理）
+function ColorSwatchButton({
+  color,
+  open,
+  onToggle,
+  title,
+}: {
+  color: string;
+  open: boolean;
+  onToggle: () => void;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      style={{ backgroundColor: color }}
+      className={`w-8 h-6 rounded-md border cursor-pointer shrink-0 ${
+        open ? "border-bamboo/60 ring-1 ring-bamboo/30" : "border-paper-deep/40"
+      }`}
+      title={title}
+    />
+  );
+}
+
+/// 内嵌取色器（react-colorful，纯 DOM 渲染）——随文档流展开在行下方。
+/// 不用原生 <input type="color">：WebView2 在透明窗口上弹出式控件不可见；
+/// 也不用浮层：设置页滚动容器/面板的 overflow 会裁剪浮层。
+function InlineHexPicker({ color, onChange }: { color: string; onChange: (value: string) => void }) {
+  return (
+    <div className="flex justify-end mt-2">
+      <div className="p-3 rounded-xl bg-cloud border border-paper-deep/50 shadow-lg">
+        <HexColorPicker color={color} onChange={onChange} />
+      </div>
+    </div>
+  );
+}
+
+function ColorRow({ label, value, onChange }: ColorRowProps) {
+  const { t } = useTranslation();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const colorValue = normalizeHexColor(value);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const handleMouseDown = (event: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) {
+        setPickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, [pickerOpen]);
+
+  return (
+    <div ref={wrapRef}>
+      <div className="flex items-center gap-2 h-8 rounded-lg px-2 bg-paper-warm/45 border border-paper-deep/25">
+        <span className="min-w-0 flex-1 truncate text-[11px] text-ink-soft">{label}</span>
+        <ColorSwatchButton
+          color={colorValue || "#ffffff"}
+          open={pickerOpen}
+          onToggle={() => setPickerOpen((open) => !open)}
+          title={label}
+        />
+        <input
+          type="text"
+          value={value ?? ""}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder="默认"
+          spellCheck={false}
+          className="w-16 h-6 px-1.5 rounded-md bg-paper-warm/70 border border-paper-deep/40 text-[10px] font-mono text-ink-soft outline-none focus:border-bamboo/40 shrink-0"
+        />
+        <button
+          type="button"
+          onClick={() => {
+            onChange("");
+            setPickerOpen(false);
+          }}
+          disabled={!value}
+          className="w-6 h-6 flex items-center justify-center rounded-md text-[12px] leading-none text-ink-faint hover:text-red-400 hover:bg-paper-warm/70 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer shrink-0"
+          title={t("common.reset", { defaultValue: "恢复默认" })}
+        >
+          ×
+        </button>
+      </div>
+      {pickerOpen && <InlineHexPicker color={colorValue || "#ffffff"} onChange={onChange} />}
+    </div>
+  );
+}
+
 function ToggleRow({ label, checked, onChange }: ToggleRowProps) {
   return (
     // relative:让 sr-only 隐藏 checkbox 以本行为定位基准。否则它会脱离行、
     // 漂浮到侧栏 wrapper 上,点击行时浏览器为聚焦它而滚动/重绘异常,
     // 造成设置页跳动与底部大片白屏。
-    <label className="relative flex items-center justify-between h-9 rounded-lg px-2.5 bg-paper-warm/45 border border-paper-deep/25 cursor-pointer">
-      <span className="text-[12px] text-ink-soft">{label}</span>
+    <label className="relative flex items-center justify-between h-8 rounded-lg px-2 bg-paper-warm/45 border border-paper-deep/25 cursor-pointer">
+      <span className="text-[11px] text-ink-soft">{label}</span>
       <input
         type="checkbox"
         checked={checked}
@@ -762,13 +884,13 @@ function ToggleRow({ label, checked, onChange }: ToggleRowProps) {
         className="sr-only"
       />
       <div
-        className={`relative w-8 h-[18px] rounded-full transition-colors duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+        className={`relative w-7 h-4 rounded-full transition-colors duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] ${
           checked ? "bg-bamboo" : "bg-paper-deep/50"
         }`}
       >
         <div
-          className={`absolute top-[2px] left-[2px] w-[14px] h-[14px] rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.15)] transition-transform duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-            checked ? "translate-x-[14px]" : "translate-x-0"
+          className={`absolute top-[2px] left-[2px] w-3 h-3 rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.15)] transition-transform duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+            checked ? "translate-x-3" : "translate-x-0"
           }`}
         />
       </div>
@@ -788,7 +910,7 @@ interface RangeRowProps {
 
 function RangeRow({ label, value, min, max, step, format, onChange }: RangeRowProps) {
   return (
-    <div className="flex items-center gap-3 h-9 rounded-lg px-2.5 bg-paper-warm/45 border border-paper-deep/25">
+    <div className="flex items-center gap-2.5 h-8 rounded-lg px-2 bg-paper-warm/45 border border-paper-deep/25">
       <span className="w-9 text-[11px] text-ink-faint">{label}</span>
       <input
         type="range"

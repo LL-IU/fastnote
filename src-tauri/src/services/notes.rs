@@ -40,8 +40,23 @@ pub struct AppConfig {
     pub note_surface_auto_save: bool,
     #[serde(default = "default_tile_color")]
     pub tile_color: String,
-    #[serde(default = "default_tile_color_mode")]
-    pub tile_color_mode: String,
+    #[serde(default)]
+    pub tile_color_light: String,
+    #[serde(default)]
+    pub tile_color_dark: String,
+    // 自定义颜色（空字符串 = 跟随主题默认），浅色/深色主题各一套互不干扰
+    #[serde(default)]
+    pub main_window_color_light: String,
+    #[serde(default)]
+    pub main_window_color_dark: String,
+    #[serde(default)]
+    pub note_list_color_light: String,
+    #[serde(default)]
+    pub note_list_color_dark: String,
+    #[serde(default)]
+    pub tile_text_color_light: String,
+    #[serde(default)]
+    pub tile_text_color_dark: String,
     #[serde(default = "default_theme")]
     pub theme: String,
     #[serde(default = "default_font_size")]
@@ -89,6 +104,11 @@ pub struct AppConfig {
     pub main_window_width: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub main_window_height: Option<u32>,
+    // 主窗口位置（逻辑像素，可为负）：完全退出时记录，下次启动沿用
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub main_window_x: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub main_window_y: Option<i32>,
     #[serde(default = "default_toggle_visibility_shortcut")]
     pub toggle_visibility_shortcut: String,
     #[serde(default = "default_show_tiles_shortcut")]
@@ -499,7 +519,7 @@ fn canonical_for_compare(path: &Path) -> PathBuf {
 // the same Recycle Bin semantics when FOF_ALLOWUNDO is set, without activating
 // the failing COM class.
 #[cfg(target_os = "windows")]
-fn recycle_path(path: &Path) -> Result<(), AppError> {
+pub(crate) fn recycle_path(path: &Path) -> Result<(), AppError> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::UI::Shell::{
         SHFileOperationW, FOF_ALLOWUNDO, FOF_NO_UI, FOF_WANTNUKEWARNING, FO_DELETE, SHFILEOPSTRUCTW,
@@ -552,7 +572,7 @@ fn recycle_path(path: &Path) -> Result<(), AppError> {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn recycle_path(path: &Path) -> Result<(), AppError> {
+pub(crate) fn recycle_path(path: &Path) -> Result<(), AppError> {
     trash::delete(path).map_err(|error| {
         AppError::new("trash", format!("移入回收站失败: {error}"))
             .with_detail("path", path.display().to_string())
@@ -725,6 +745,7 @@ impl NoteStore {
         }
 
         let mut config: AppConfig = serde_json::from_str(&fs::read_to_string(&path)?)?;
+        migrate_legacy_single_colors(&fs::read_to_string(&path)?, &mut config);
         // 仅支持中文界面：强制 locale 为 zh-CN（忽略历史配置中的其他语言）
         config.locale = "zh-CN".to_string();
         // config 中记录的 dataDir 是上次运行时数据所在位置；若本次 resolve 出的
@@ -1155,7 +1176,14 @@ impl NoteStore {
             note_auto_save: true,
             note_surface_auto_save: true,
             tile_color: default_tile_color(),
-            tile_color_mode: default_tile_color_mode(),
+            tile_color_light: String::new(),
+            tile_color_dark: String::new(),
+            main_window_color_light: String::new(),
+            main_window_color_dark: String::new(),
+            note_list_color_light: String::new(),
+            note_list_color_dark: String::new(),
+            tile_text_color_light: String::new(),
+            tile_text_color_dark: String::new(),
             theme: default_theme(),
             font_size: default_font_size(),
             surface_font_size: default_surface_font_size(),
@@ -1179,6 +1207,8 @@ impl NoteStore {
             surface_height: None,
             main_window_width: None,
             main_window_height: None,
+            main_window_x: None,
+            main_window_y: None,
             toggle_visibility_shortcut: default_toggle_visibility_shortcut(),
             show_tiles_shortcut: default_show_tiles_shortcut(),
             open_at_cursor: default_open_at_cursor(),
@@ -1704,6 +1734,50 @@ fn default_tile_color() -> String {
     "#faf7ef".into()
 }
 
+/// 旧版单值自定义颜色（mainWindowColor 等）迁移到浅/深两套：两套都为空时写入两者。
+/// 字段已从结构体移除，这里直接读原始 JSON；首次保存后旧字段自然消失。
+fn migrate_legacy_single_colors(raw: &str, config: &mut AppConfig) {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return;
+    };
+    let migrate = |key: &str, light: &mut String, dark: &mut String| {
+        let single = value.get(key).and_then(|v| v.as_str()).unwrap_or("");
+        if !single.is_empty() {
+            if light.is_empty() {
+                *light = single.to_string();
+            }
+            if dark.is_empty() {
+                *dark = single.to_string();
+            }
+        }
+    };
+    migrate(
+        "mainWindowColor",
+        &mut config.main_window_color_light,
+        &mut config.main_window_color_dark,
+    );
+    migrate(
+        "noteListColor",
+        &mut config.note_list_color_light,
+        &mut config.note_list_color_dark,
+    );
+    migrate(
+        "tileTextColor",
+        &mut config.tile_text_color_light,
+        &mut config.tile_text_color_dark,
+    );
+    // 磁贴颜色：仅当旧值不是默认值（即用户真的自定义过）时迁移
+    let tile = value.get("tileColor").and_then(|v| v.as_str()).unwrap_or("");
+    if !tile.is_empty() && tile != default_tile_color() {
+        if config.tile_color_light.is_empty() {
+            config.tile_color_light = tile.to_string();
+        }
+        if config.tile_color_dark.is_empty() {
+            config.tile_color_dark = tile.to_string();
+        }
+    }
+}
+
 fn default_tile_color_mode() -> String {
     "system".into()
 }
@@ -1910,7 +1984,6 @@ mod tests {
         assert!(default_config.note_auto_save);
         assert!(default_config.note_surface_auto_save);
         assert_eq!(default_config.tile_color, "#faf7ef");
-        assert_eq!(default_config.tile_color_mode, "system");
         assert!(!default_config.tile_double_click_to_edit);
         assert!(!default_config.tile_save_returns_to_pin);
         assert_eq!(default_config.theme, "system");
@@ -1930,7 +2003,14 @@ mod tests {
             note_auto_save: false,
             note_surface_auto_save: false,
             tile_color: "#efe8dc".into(),
-            tile_color_mode: "custom".into(),
+            tile_color_light: "#efe8dc".into(),
+            tile_color_dark: "#efe8dc".into(),
+            main_window_color_light: String::new(),
+            main_window_color_dark: String::new(),
+            note_list_color_light: String::new(),
+            note_list_color_dark: String::new(),
+            tile_text_color_light: String::new(),
+            tile_text_color_dark: String::new(),
             theme: "dark".into(),
             font_size: 16,
             surface_font_size: 16,
@@ -1954,6 +2034,8 @@ mod tests {
             surface_height: None,
             main_window_width: None,
             main_window_height: None,
+            main_window_x: None,
+            main_window_y: None,
             toggle_visibility_shortcut: String::new(),
             show_tiles_shortcut: "CmdOrCtrl+Shift+T".into(),
             notes_dir: None,
@@ -2015,7 +2097,6 @@ mod tests {
         assert!(loaded.note_auto_save);
         assert!(loaded.note_surface_auto_save);
         assert_eq!(loaded.tile_color, "#faf7ef");
-        assert_eq!(loaded.tile_color_mode, "system");
         assert!(!loaded.tile_double_click_to_edit);
         assert!(!loaded.tile_save_returns_to_pin);
         assert_eq!(loaded.theme, "system");

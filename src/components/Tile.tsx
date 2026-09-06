@@ -2,7 +2,7 @@ import chroma from "chroma-js";
 import type { CSSProperties, HTMLAttributes } from "react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { DEFAULT_TILE_COLOR, normalizeTileColor } from "../features/settings/tileColor";
+import { DEFAULT_TILE_COLOR, normalizeHexColor, normalizeTileColor } from "../features/settings/tileColor";
 import { MarkdownPreviewLazy as MarkdownPreview } from "../features/markdown/MarkdownPreviewLazy";
 
 export interface TileProps extends Omit<
@@ -12,6 +12,8 @@ export interface TileProps extends Omit<
   title?: string;
   content: string;
   color?: string;
+  /// 自定义磁贴文字颜色（空 = 由背景色自动对比推导）
+  textColor?: string;
   width?: number | string;
   rotation?: number;
   fontSize?: number;
@@ -72,6 +74,7 @@ export function Tile({
   title,
   content,
   color = DEFAULT_TILE_COLOR,
+  textColor,
   width = 260,
   rotation = 0,
   fontSize = 14,
@@ -84,17 +87,26 @@ export function Tile({
 }: TileProps) {
   const { t } = useTranslation();
   const tileColor = normalizeTileColor(color);
+  const customTextColor = normalizeHexColor(textColor);
   const { borderColor, cornerColor, titleColor, contentColor, emptyColor } = useMemo(() => {
     const isLightBg = chroma(tileColor).luminance() > 0.18;
     const mixTarget = isLightBg ? "#1a1a18" : "#ffffff";
+    // 用户自定义了文字颜色时，标题/正文/空态都从它派生层次
+    const base = customTextColor || mixTarget;
     return {
-      borderColor: chroma.mix(tileColor, mixTarget, 0.18).alpha(0.55).css(),
-      cornerColor: chroma.mix(tileColor, mixTarget, 0.3).alpha(0.26).css(),
-      titleColor: chroma.mix(tileColor, mixTarget, 0.4).alpha(0.5).css(),
-      contentColor: chroma.mix(tileColor, mixTarget, 0.65).alpha(0.85).css(),
-      emptyColor: chroma.mix(tileColor, mixTarget, 0.25).alpha(0.4).css(),
+      borderColor: chroma.mix(tileColor, base, 0.18).alpha(0.55).css(),
+      cornerColor: chroma.mix(tileColor, base, 0.3).alpha(0.26).css(),
+      titleColor: customTextColor
+        ? customTextColor
+        : chroma.mix(tileColor, base, 0.4).alpha(0.5).css(),
+      contentColor: customTextColor
+        ? chroma(customTextColor).alpha(0.85).css()
+        : chroma.mix(tileColor, base, 0.65).alpha(0.85).css(),
+      emptyColor: customTextColor
+        ? chroma(customTextColor).alpha(0.4).css()
+        : chroma.mix(tileColor, base, 0.25).alpha(0.4).css(),
     };
-  }, [tileColor]);
+  }, [tileColor, customTextColor]);
   const mergedStyle: CSSProperties = {
     width,
     backgroundColor: tileColor,

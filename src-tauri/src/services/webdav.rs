@@ -10,7 +10,7 @@
 //! - 后台定时同步：启用后每 5 分钟自动双向同步一次
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     path::{Component, Path, PathBuf},
     time::Duration,
@@ -219,6 +219,18 @@ fn normalize_remote_url(base: &str, remote_path: &str) -> String {
     format!("{base}/{rp}")
 }
 
+/// 把非 2xx 状态翻译成带原因的友好提示。
+/// 503 几乎都是坚果云等网盘的请求频率/流量超限（服务端限流），401 是凭据错误。
+fn dav_error(action: &str, status: reqwest::StatusCode) -> String {
+    match status.as_u16() {
+        503 => format!(
+            "{action}失败：服务器返回 503（服务暂时不可用）。坚果云等网盘在请求过于频繁或流量超限时返回此错误，请等几分钟后再试"
+        ),
+        401 => format!("{action}失败：服务器返回 401（账号或应用密码不正确）"),
+        _ => format!("{action}失败，服务器返回 {status}"),
+    }
+}
+
 fn basic_auth_header(user: &str, pass: &str) -> Result<reqwest::header::HeaderValue, String> {
     let raw = format!("{}:{}", user, pass);
     let encoded = B64.encode(raw);
@@ -328,6 +340,40 @@ fn overwrite_local_files(data_dir: &Path, sync: &SyncFile) -> Result<(), String>
     Ok(())
 }
 
+/// 从同步文件集中提取 metadata.json 引用的笔记文件路径
+/// （与 collect_dir_files 的 "notes/{分类}/{文件名}" 规则一致）
+fn referenced_note_paths(files: &[SyncNoteFile]) -> Option<HashSet<String>> {
+    let meta = files.iter().find(|f| f.path == "metadata.json")?;
+    let value = serde_json::from_str::<serde_json::Value>(&meta.content).ok()?;
+    let mut referenced = HashSet::new();
+    if let Some(notes) = value.get("notes").and_then(|v| v.as_array()) {
+        for note in notes {
+            let file_name = note.get("fileName").and_then(|v| v.as_str()).unwrap_or("");
+            if file_name.is_empty() {
+                continue;
+            }
+            let category = note.get("category").and_then(|v| v.as_str()).unwrap_or("");
+            let path = if category.is_empty() {
+                format!("notes/{file_name}")
+            } else {
+                format!("notes/{category}/{file_name}")
+            };
+            referenced.insert(path);
+        }
+    }
+    Some(referenced)
+}
+
+/// 以 metadata.json 为权威索引，剔除同步集中未被引用的笔记文件。
+/// 否则「本地删除」会在下次同步时被云端残留的旧文件复活，
+/// 造成删除笔记后文件夹里仍然留着 .md 文件。
+fn prune_unreferenced_files(files: &mut Vec<SyncNoteFile>) {
+    let Some(referenced) = referenced_note_paths(files) else {
+        return;
+    };
+    files.retain(|f| f.path == "metadata.json" || referenced.contains(&f.path));
+}
+
 // ──────────────── 核心同步逻辑 ────────────────
 
 /// 可选的配置覆盖（来自当前输入框的临时值，优先于已保存配置）
@@ -409,10 +455,8 @@ fn sync_to_webdav(ov: Option<&ConfigOverride>) -> Result<(), String> {
 
     let local = collect_local_files(&data_dir)?;
 
-    // 先确保远端父目录存在：坚果云对「父目录不存在」的资源请求会返回 409
-    ensure_remote_dir(&client, &url, &auth, &remote_path)?;
-
-    // 尝试拉取远端
+    // 先拉取远端。坚果云等网盘对请求频率敏感，常见路径（目录已存在）只发
+    // GET + PUT 两个请求；仅当远端文件/目录缺失（404/409）时才补建目录。
     let remote_files = match client
         .get(&full)
         .header(reqwest::header::AUTHORIZATION, auth.clone())
@@ -431,18 +475,19 @@ fn sync_to_webdav(ov: Option<&ConfigOverride>) -> Result<(), String> {
                 }
             }
         }
-        // 404（文件不存在）与 409（坚果云对缺失资源可能返回 409）都视为远端无文件
+        // 404（文件不存在）与 409（坚果云对缺失资源可能返回 409）都视为远端无文件，
+        // 此时确保父目录存在，避免随后的 PUT 409
         Ok(resp) if resp.status().as_u16() == 404 || resp.status().as_u16() == 409 => {
-            eprintln!("[webdav] sync: 远端文件不存在（{}），将直接上传本地", resp.status());
+            eprintln!("[webdav] sync: 远端文件不存在（{}），确保目录后上传本地", resp.status());
+            ensure_remote_dir(&client, &url, &auth, &remote_path)?;
             Vec::new()
         }
-        Ok(resp) => {
-            return Err(format!("下载失败，服务器返回 {}", resp.status()));
-        }
+        Ok(resp) => return Err(dav_error("下载", resp.status())),
         Err(e) => return Err(format!("下载请求失败: {e}")),
     };
 
-    let merged = merge_files(local, remote_files);
+    let mut merged = merge_files(local, remote_files);
+    prune_unreferenced_files(&mut merged);
 
     // 写回本地（合并结果）
     overwrite_local_files(
@@ -455,11 +500,10 @@ fn sync_to_webdav(ov: Option<&ConfigOverride>) -> Result<(), String> {
     )?;
 
     // 上传合并结果到云端
-    ensure_remote_dir(&client, &url, &auth, &remote_path)?;
     let body = serde_json::to_string(&SyncFile {
         version: 1,
         updated_at: now_ms(),
-        files: merged,
+        files: merged.clone(),
     })
     .map_err(|e| format!("序列化失败: {e}"))?;
 
@@ -473,7 +517,29 @@ fn sync_to_webdav(ov: Option<&ConfigOverride>) -> Result<(), String> {
         .map_err(|e| format!("上传请求失败: {e}"))?;
 
     if !resp.status().is_success() {
-        return Err(format!("上传失败，服务器返回 {}", resp.status()));
+        // 目录可能中途被删（坚果云返回 409）：补建目录后重试一次
+        if resp.status().as_u16() == 409 {
+            ensure_remote_dir(&client, &url, &auth, &remote_path)?;
+            let body = serde_json::to_string(&SyncFile {
+                version: 1,
+                updated_at: now_ms(),
+                files: merged,
+            })
+            .map_err(|e| format!("序列化失败: {e}"))?;
+            let resp = client
+                .put(&full)
+                .header(reqwest::header::AUTHORIZATION, auth)
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .body(body)
+                .send()
+                .map_err(|e| format!("上传请求失败: {e}"))?;
+            if !resp.status().is_success() {
+                return Err(dav_error("上传", resp.status()));
+            }
+            set_last_sync(now_ms())?;
+            return Ok(());
+        }
+        return Err(dav_error("上传", resp.status()));
     }
 
     set_last_sync(now_ms())?;
@@ -500,12 +566,13 @@ fn download_from_webdav(app: &AppHandle, ov: Option<&ConfigOverride>) -> Result<
         if resp.status().as_u16() == 404 || resp.status().as_u16() == 409 {
             return Err("远端文件不存在，请先执行「立即同步」".into());
         }
-        return Err(format!("下载失败，服务器返回 {}", resp.status()));
+        return Err(dav_error("下载", resp.status()));
     }
 
     let body = resp.text().map_err(|e| format!("读取响应失败: {e}"))?;
-    let sync_file: SyncFile =
+    let mut sync_file: SyncFile =
         serde_json::from_str(&body).map_err(|e| format!("解析远端数据失败: {e}"))?;
+    prune_unreferenced_files(&mut sync_file.files);
 
     overwrite_local_files(&data_dir, &sync_file)?;
     set_last_sync(now_ms())?;
@@ -667,7 +734,7 @@ pub async fn webdav_test(payload: WebdavTestPayload) -> Result<String, String> {
         if resp.status().is_success() || resp.status().as_u16() == 207 {
             Ok("连接成功".into())
         } else {
-            Err(format!("连接失败，服务器返回 {}", resp.status()))
+            Err(dav_error("连接", resp.status()))
         }
     })
     .await
@@ -729,4 +796,73 @@ pub async fn webdav_status() -> Result<WebdavStatus, String> {
     })
     .await
     .map_err(|e| format!("后台任务失败: {e}"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn note_file(path: &str) -> SyncNoteFile {
+        SyncNoteFile {
+            path: path.to_string(),
+            content: "内容".to_string(),
+            mtime_ms: 0,
+        }
+    }
+
+    fn metadata_file(note_count: usize) -> SyncNoteFile {
+        let notes: Vec<String> = (0..note_count)
+            .map(|i| {
+                if i == 0 {
+                    r#"{"fileName":"a.md","category":""}"#.to_string()
+                } else {
+                    format!(r#"{{"fileName":"a{i}.md","category":"工作"}}"#)
+                }
+            })
+            .collect();
+        SyncNoteFile {
+            path: "metadata.json".to_string(),
+            content: format!(r#"{{"notes":[{}]}}"#, notes.join(",")),
+            mtime_ms: 0,
+        }
+    }
+
+    #[test]
+    fn prunes_note_files_not_referenced_by_metadata() {
+        let mut files = vec![
+            metadata_file(2),
+            note_file("notes/a.md"),          // metadata 引用，保留
+            note_file("notes/工作/a1.md"),    // metadata 引用，保留
+            note_file("notes/deleted.md"),    // 已删除笔记被云端残留，应剔除
+            note_file("notes/工作/deleted.md"),
+        ];
+        prune_unreferenced_files(&mut files);
+
+        let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, vec!["metadata.json", "notes/a.md", "notes/工作/a1.md"]);
+    }
+
+    #[test]
+    fn keeps_metadata_even_without_notes_key() {
+        let mut files = vec![
+            SyncNoteFile {
+                path: "metadata.json".to_string(),
+                content: "{}".to_string(),
+                mtime_ms: 0,
+            },
+            note_file("notes/orphan.md"),
+        ];
+        prune_unreferenced_files(&mut files);
+
+        let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, vec!["metadata.json"]);
+    }
+
+    #[test]
+    fn leaves_files_untouched_without_metadata() {
+        let mut files = vec![note_file("notes/a.md")];
+        prune_unreferenced_files(&mut files);
+
+        assert_eq!(files.len(), 1);
+    }
 }

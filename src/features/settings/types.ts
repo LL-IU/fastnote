@@ -2,7 +2,6 @@ export type ViewMode = "edit" | "split" | "preview";
 
 export type ThemeOption = "light" | "dark" | "system";
 
-export type TileColorMode = "system" | "custom";
 export type BackgroundFit = "cover" | "contain" | "repeat";
 
 export interface AppConfig {
@@ -15,7 +14,15 @@ export interface AppConfig {
   noteAutoSave: boolean;
   noteSurfaceAutoSave: boolean;
   tileColor: string;
-  tileColorMode: TileColorMode;
+  // 自定义颜色：浅色/深色主题各一套，互不干扰（空 = 跟随主题默认）
+  mainWindowColorLight?: string;
+  mainWindowColorDark?: string;
+  noteListColorLight?: string;
+  noteListColorDark?: string;
+  tileTextColorLight?: string;
+  tileTextColorDark?: string;
+  tileColorLight?: string;
+  tileColorDark?: string;
   theme: ThemeOption;
   fontSize: number;
   surfaceFontSize: number;
@@ -30,9 +37,11 @@ export interface AppConfig {
   splitScrollSync: boolean;
   surfaceWidth?: number;
   surfaceHeight?: number;
-  // 主窗口尺寸（逻辑像素）：完全退出时由后端记录，下次启动沿用
+  // 主窗口尺寸与位置（逻辑像素）：完全退出时由后端记录，下次启动沿用
   mainWindowWidth?: number;
   mainWindowHeight?: number;
+  mainWindowX?: number;
+  mainWindowY?: number;
   toggleVisibilityShortcut: string;
   showTilesShortcut: string;
   openAtCursor: boolean;

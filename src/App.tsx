@@ -7,8 +7,8 @@ import { TileShowcase } from "./components/TileShowcase";
 import { ToastContainer } from "./components/Toast";
 import { tabToIndentListener } from "indent-textarea";
 import { getConfig } from "./features/settings/api";
-import { applyTheme, watchSystemTheme } from "./features/settings/theme";
-import type { AppConfig, ThemeOption } from "./features/settings/types";
+import { applyAppearance, watchSystemTheme } from "./features/settings/theme";
+import type { AppConfig } from "./features/settings/types";
 import { getInitialRoute } from "./features/windows/windowRoutes";
 import { syncLanguage } from "./locales";
 import { listen } from "@tauri-apps/api/event";
@@ -21,9 +21,8 @@ function App() {
     let cleanup = () => {};
     getConfig()
       .then((config) => {
-        const theme = (config.theme || "system") as ThemeOption;
-        applyTheme(theme);
-        cleanup = watchSystemTheme(theme);
+        applyAppearance(config);
+        cleanup = watchSystemTheme(config.theme);
         document.documentElement.style.setProperty(
           "--tab-indent-size",
           String(config.tabIndentSize ?? 2),
@@ -38,10 +37,9 @@ function App() {
   useEffect(() => {
     let themeCleanup = () => {};
     const unlisten = listen<AppConfig>("config-changed", (event) => {
-      const theme = (event.payload.theme || "system") as ThemeOption;
-      applyTheme(theme);
+      applyAppearance(event.payload);
       themeCleanup();
-      themeCleanup = watchSystemTheme(theme);
+      themeCleanup = watchSystemTheme(event.payload.theme);
       document.documentElement.style.setProperty(
         "--tab-indent-size",
         String(event.payload.tabIndentSize ?? 2),
