@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Lint（oxlint）
+        run: npm run lint
+
+      - name: 类型检查（tsc）
+        run: npx tsc --noEmit
+
+      - name: 前端测试（vitest）
+        run: npm test
+
+      - name: Rust 测试（cargo test）
+        run: cargo test
+        working-directory: src-tauri
