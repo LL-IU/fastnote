@@ -463,6 +463,9 @@ pub fn run() {
                 let scope = app.asset_protocol_scope();
                 let _ = scope.allow_directory(data.join("images"), true);
                 let _ = scope.allow_directory(data.join("backgrounds"), true);
+                // 启动时清理图片残留：已删除笔记的图片目录、以及笔记内容里
+                // 已不再引用的图片文件（历史遗留的「图片删了文件还在」）
+                let _ = store.prune_unused_images();
             }
             desktop::setup_desktop(app)?;
             // 启动 Rust 端后台 WebDAV 同步轮询（仅启用时执行同步）

@@ -51,8 +51,8 @@ import {
   saveExternalFile,
   updateNote,
 } from "../features/notes/api";
-import { cleanUnusedImages, saveImageFromPath } from "../features/images/api";
-import { useImagePaste, insertTextAtCursor } from "../features/images/useImagePaste";
+import { cleanUnusedImages } from "../features/images/api";
+import { useImagePaste } from "../features/images/useImagePaste";
 import { useImageBaseDir } from "../features/images/useImageBaseDir";
 import type { ExternalFile, Note, NoteMetadata } from "../features/notes/types";
 import {
@@ -118,6 +118,26 @@ type FormatAction =
   | "inlineMath"
   | "blockMath";
 
+/// 行内强调：把选区的首尾空白/标点挪到标记外侧。
+/// 否则「*文本。*后面还有字」会因闭合标记前是标点而无法构成强调，预览里
+/// 直接显示成星号。
+function splitInlineEdges(raw: string): { lead: string; core: string; trail: string } {
+  const lead = /^\s*/.exec(raw)?.[0] ?? "";
+  const trail = /\s*$/.exec(raw)?.[0] ?? "";
+  let core = raw.slice(lead.length, raw.length - trail.length);
+  if (core.length > 0) {
+    // 闭合标记前若是标点，强调语法可能失效（预览显示成星号），
+    // 把尾部标点移到标记外侧。
+    const punct = /([\p{P}\p{S}]+)$/u.exec(core);
+    if (punct && punct[1].length < core.length) {
+      const moved = punct[1];
+      core = core.slice(0, core.length - moved.length);
+      return { lead, core, trail: moved + trail };
+    }
+  }
+  return { lead, core, trail };
+}
+
 function applyFormat(
   textarea: HTMLTextAreaElement,
   action: FormatAction,
@@ -132,61 +152,69 @@ function applyFormat(
 
   const lineStart = before.lastIndexOf("\n") + 1;
   const currentLine = before.slice(lineStart);
+  // 行首插入块级语法（引用/列表）时，若光标位于行中，需要先补一个换行，
+  // 否则会变成普通文字（预览不生效）。
+  const lineBreak = currentLine.trim().length > 0 ? "\n" : "";
 
-  let result: string;
-  let cursorStart: number;
-  let cursorEnd: number;
+  // 只替换被修改的最小范围，避免把整篇内容写进撤销栈
+  let editStart = start;
+  let editEnd = end;
+  let replacement = "";
+  let cursorStart = start;
+  let cursorEnd = start;
 
   switch (action) {
     case "bold": {
-      const fallback = translate("main.formatSample.boldText", { defaultValue: "粗体文本" });
-      const wrapped = `**${selected || fallback}**`;
-      result = before + wrapped + after;
-      cursorStart = start + 2;
-      cursorEnd = cursorStart + (selected || fallback).length;
+      const raw = selected || translate("main.formatSample.boldText", { defaultValue: "粗体文本" });
+      const { lead, core, trail } = splitInlineEdges(raw);
+      replacement = `${lead}**${core}**${trail}`;
+      cursorStart = editStart + lead.length + 2;
+      cursorEnd = cursorStart + core.length;
       break;
     }
     case "italic": {
-      const fallback = translate("main.formatSample.italicText", { defaultValue: "斜体文本" });
-      const wrapped = `*${selected || fallback}*`;
-      result = before + wrapped + after;
-      cursorStart = start + 1;
-      cursorEnd = cursorStart + (selected || fallback).length;
+      const raw = selected || translate("main.formatSample.italicText", { defaultValue: "斜体文本" });
+      const { lead, core, trail } = splitInlineEdges(raw);
+      replacement = `${lead}*${core}*${trail}`;
+      cursorStart = editStart + lead.length + 1;
+      cursorEnd = cursorStart + core.length;
       break;
     }
     case "heading": {
       const prefix = currentLine.match(/^(#{1,5})\s/);
       if (prefix) {
         const newLevel = prefix[1].length < 5 ? "#".repeat(prefix[1].length + 1) : "#";
-        const beforeLine = value.slice(0, lineStart);
-        const afterPrefix = value.slice(lineStart + prefix[0].length);
-        result = beforeLine + newLevel + " " + afterPrefix;
+        editStart = lineStart;
+        editEnd = lineStart + prefix[0].length;
+        replacement = newLevel + " ";
         const offset = newLevel.length + 1 - prefix[0].length;
-        cursorStart = start + offset;
-        cursorEnd = end + offset;
+        cursorStart = Math.max(editStart + newLevel.length + 1, start + offset);
+        cursorEnd = Math.max(cursorStart, end + offset);
       } else if (currentLine.length > 0 && start === end) {
-        result = value.slice(0, lineStart) + "## " + value.slice(lineStart);
+        editStart = lineStart;
+        editEnd = lineStart;
+        replacement = "## ";
         cursorStart = start + 3;
-        cursorEnd = cursorStart;
+        cursorEnd = start + 3;
       } else if (selected) {
-        result = before + `## ${selected}` + after;
+        editStart = start;
+        editEnd = start;
+        replacement = "## ";
         cursorStart = start + 3;
         cursorEnd = cursorStart + selected.length;
       } else {
-        result =
-          before +
-          `## ${translate("main.formatSample.headingText", { defaultValue: "标题" })}` +
-          after;
+        const fallback = translate("main.formatSample.headingText", { defaultValue: "标题" });
+        replacement = `## ${fallback}`;
         cursorStart = start + 3;
-        cursorEnd = cursorStart + 2;
+        cursorEnd = cursorStart + fallback.length;
       }
       break;
     }
     case "hr": {
       const newlineBefore = before.endsWith("\n") || before === "" ? "" : "\n";
       const newlineAfter = after.startsWith("\n") || after === "" ? "" : "\n";
-      result = before + `${newlineBefore}---${newlineAfter}` + after;
-      cursorStart = cursorEnd = before.length + newlineBefore.length + 3;
+      replacement = `${newlineBefore}---${newlineAfter}`;
+      cursorStart = cursorEnd = start + newlineBefore.length + 3;
       break;
     }
     case "ul": {
@@ -195,15 +223,15 @@ function applyFormat(
           .split("\n")
           .map((l) => `- ${l}`)
           .join("\n");
-        result = before + lines + after;
-        cursorStart = start;
-        cursorEnd = start + lines.length;
+        replacement = lineBreak + lines;
+        cursorStart = editStart + lineBreak.length;
+        cursorEnd = cursorStart + lines.length;
       } else {
         const fallback = translate("main.formatSample.listItem", { defaultValue: "列表项" });
-        const item = `- ${selected || fallback}`;
-        result = before + item + after;
-        cursorStart = start + 2;
-        cursorEnd = cursorStart + (selected || fallback).length;
+        const text = selected || fallback;
+        replacement = `${lineBreak}- ${text}`;
+        cursorStart = editStart + lineBreak.length + 2;
+        cursorEnd = cursorStart + text.length;
       }
       break;
     }
@@ -213,30 +241,29 @@ function applyFormat(
           .split("\n")
           .map((l, i) => `${i + 1}. ${l}`)
           .join("\n");
-        result = before + lines + after;
-        cursorStart = start;
-        cursorEnd = start + lines.length;
+        replacement = lineBreak + lines;
+        cursorStart = editStart + lineBreak.length;
+        cursorEnd = cursorStart + lines.length;
       } else {
         const fallback = translate("main.formatSample.listItem", { defaultValue: "列表项" });
-        const item = `1. ${selected || fallback}`;
-        result = before + item + after;
-        cursorStart = start + 3;
-        cursorEnd = cursorStart + (selected || fallback).length;
+        const text = selected || fallback;
+        replacement = `${lineBreak}1. ${text}`;
+        cursorStart = editStart + lineBreak.length + 3;
+        cursorEnd = cursorStart + text.length;
       }
       break;
     }
     case "code": {
       if (selected.includes("\n")) {
-        const wrapped = "```\n" + selected + "\n```";
-        result = before + wrapped + after;
-        cursorStart = start + 4;
+        replacement = "```\n" + selected + "\n```";
+        cursorStart = editStart + 4;
         cursorEnd = cursorStart + selected.length;
       } else {
         const fallback = translate("main.formatSample.codeText", { defaultValue: "代码" });
-        const wrapped = `\`${selected || fallback}\``;
-        result = before + wrapped + after;
-        cursorStart = start + 1;
-        cursorEnd = cursorStart + (selected || fallback).length;
+        const text = selected || fallback;
+        replacement = `\`${text}\``;
+        cursorStart = editStart + 1;
+        cursorEnd = cursorStart + text.length;
       }
       break;
     }
@@ -246,41 +273,50 @@ function applyFormat(
           .split("\n")
           .map((l) => `> ${l}`)
           .join("\n");
-        result = before + lines + after;
-        cursorStart = start;
-        cursorEnd = start + lines.length;
+        replacement = lineBreak + lines;
+        cursorStart = editStart + lineBreak.length;
+        cursorEnd = cursorStart + lines.length;
       } else {
         const fallback = translate("main.formatSample.quoteText", { defaultValue: "引用文本" });
-        const item = `> ${selected || fallback}`;
-        result = before + item + after;
-        cursorStart = start + 2;
-        cursorEnd = cursorStart + (selected || fallback).length;
+        const text = selected || fallback;
+        replacement = `${lineBreak}> ${text}`;
+        cursorStart = editStart + lineBreak.length + 2;
+        cursorEnd = cursorStart + text.length;
       }
       break;
     }
     case "inlineMath": {
-      const wrapped = `$${selected || "E=mc^2"}$`;
-      result = before + wrapped + after;
-      cursorStart = start + 1;
-      cursorEnd = cursorStart + (selected || "E=mc^2").length;
+      const text = selected || "E=mc^2";
+      replacement = `$${text}$`;
+      cursorStart = editStart + 1;
+      cursorEnd = cursorStart + text.length;
       break;
     }
     case "blockMath": {
-      const wrapped = `\n$$\n${selected || "x^2 + y^2 = r^2"}\n$$\n`;
-      result = before + wrapped + after;
-      cursorStart = start + 4;
-      cursorEnd = cursorStart + (selected || "x^2 + y^2 = r^2").length;
+      const text = selected || "x^2 + y^2 = r^2";
+      replacement = `\n$$\n${text}\n$$\n`;
+      cursorStart = editStart + 4;
+      cursorEnd = cursorStart + text.length;
       break;
     }
   }
 
+  // 记录滚动位置：整段替换会让 textarea 滚回顶部（表现为「跳到第一行」）
+  const scrollTop = textarea.scrollTop;
+  const scrollLeft = textarea.scrollLeft;
   textarea.focus();
-  textarea.setSelectionRange(0, value.length);
-  document.execCommand("insertText", false, result);
-  setContent(result);
+  textarea.setSelectionRange(editStart, editEnd);
+  document.execCommand("insertText", false, replacement);
+  const next = textarea.value;
+  setContent(next);
   markDirty();
+  textarea.setSelectionRange(cursorStart, cursorEnd);
+  textarea.scrollTop = scrollTop;
+  textarea.scrollLeft = scrollLeft;
   requestAnimationFrame(() => {
     textarea.setSelectionRange(cursorStart, cursorEnd);
+    textarea.scrollTop = scrollTop;
+    textarea.scrollLeft = scrollLeft;
   });
 }
 
@@ -809,44 +845,19 @@ export function MainWindow({
 
   useEffect(() => {
     const TEXT_RE = /\.(md|markdown|txt)$/i;
-    const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
 
     const unlisten = getCurrentWindow().onDragDropEvent((event) => {
       if (event.payload.type !== "drop") return;
-      const textPaths: string[] = [];
-      const imagePaths: string[] = [];
-
+      // 图片拖入暂时不支持（图片粘贴功能已停用），仅处理可打开的文本文件
       for (const p of event.payload.paths) {
-        if (TEXT_RE.test(p)) textPaths.push(p);
-        else if (IMAGE_RE.test(p)) imagePaths.push(p);
-      }
-
-      for (const p of textPaths) {
-        void loadExternalFile(p);
-      }
-
-      if (imagePaths.length > 0 && selectedIdRef.current && !isExternalRef.current) {
-        const noteId = selectedIdRef.current;
-        void (async () => {
-          const textarea = contentRef.current;
-          if (!textarea) return;
-          try {
-            const rels = await Promise.all(imagePaths.map((p) => saveImageFromPath(noteId, p)));
-            const markdown = rels.map((rel) => `![](${rel})`).join("\n");
-            insertTextAtCursor(textarea, setContent, markdown);
-            saveStateRef.current = "dirty";
-            setSaveState("dirty");
-          } catch (error) {
-            showToast(getErrorMessage(error));
-          }
-        })();
+        if (TEXT_RE.test(p)) void loadExternalFile(p);
       }
     });
 
     return () => {
       void unlisten.then((fn) => fn());
     };
-  }, [loadExternalFile, setContent]);
+  }, [loadExternalFile]);
 
   useEffect(() => {
     const unlisten = listen<string>("open-note", (event) => {
@@ -1437,7 +1448,8 @@ export function MainWindow({
     setContent,
     markDirty,
     onEnsureNoteSaved: ensureNoteSaved,
-    disabled: isExternal,
+    // 图片粘贴功能暂时停用：粘贴的图片只存文件不显示图片，先关闭
+    disabled: true,
     onError: showToast,
     t,
   });
@@ -2747,6 +2759,9 @@ export function MainWindow({
 
                       <div className="flex-1 overflow-hidden px-5 pb-4">
                         <textarea
+                          // key 按笔记重建：清掉上一个笔记的原生撤销栈，
+                          // 避免 Ctrl+Z 跨笔记回退或恢复成「全选」状态
+                          key={selectedId ?? "no-note"}
                           ref={contentRef}
                           data-tab-indent="true"
                           value={content}

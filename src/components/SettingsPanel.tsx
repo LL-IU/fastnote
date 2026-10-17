@@ -18,7 +18,7 @@ import {
 } from "../features/settings/shortcutRecorder";
 import { useShortcutRecorder } from "../features/settings/useShortcutRecorder";
 import { normalizeHexColor } from "../features/settings/tileColor";
-import { HexColorPicker } from "react-colorful";
+import { HexColorInput, HexColorPicker } from "react-colorful";
 import { applyTheme, resolvedTheme, watchSystemTheme } from "../features/settings/theme";
 import {
   webdavGetConfig,
@@ -807,11 +807,20 @@ function ColorSwatchButton({
 /// 内嵌取色器（react-colorful，纯 DOM 渲染）——随文档流展开在行下方。
 /// 不用原生 <input type="color">：WebView2 在透明窗口上弹出式控件不可见；
 /// 也不用浮层：设置页滚动容器/面板的 overflow 会裁剪浮层。
+/// 面板内保留颜色编码输入框（HexColorInput），可手动输入/粘贴 #RRGGBB。
 function InlineHexPicker({ color, onChange }: { color: string; onChange: (value: string) => void }) {
   return (
     <div className="flex justify-end mt-2">
-      <div className="p-3 rounded-xl bg-cloud border border-paper-deep/50 shadow-lg">
+      <div className="space-y-2 p-3 rounded-xl bg-cloud border border-paper-deep/50 shadow-lg">
         <HexColorPicker color={color} onChange={onChange} />
+        <HexColorInput
+          color={color}
+          onChange={onChange}
+          prefixed
+          spellCheck={false}
+          placeholder="#faf7ef"
+          className="w-full h-7 px-2 rounded-md bg-paper-warm/70 border border-paper-deep/40 text-[12px] font-mono text-ink-soft outline-none focus:border-bamboo/40"
+        />
       </div>
     </div>
   );
@@ -837,7 +846,7 @@ function ColorRow({ label, value, onChange }: ColorRowProps) {
   return (
     <div ref={wrapRef}>
       <div className="flex items-center gap-2 h-8 rounded-lg px-2 bg-paper-warm/45 border border-paper-deep/25">
-        <span className="min-w-0 flex-1 truncate text-[11px] text-ink-soft">{label}</span>
+        <span className="w-20 shrink-0 truncate text-[11px] text-ink-soft">{label}</span>
         <ColorSwatchButton
           color={colorValue || "#ffffff"}
           open={pickerOpen}
@@ -848,9 +857,9 @@ function ColorRow({ label, value, onChange }: ColorRowProps) {
           type="text"
           value={value ?? ""}
           onChange={(event) => onChange(event.target.value)}
-          placeholder="默认"
+          placeholder="#faf7ef"
           spellCheck={false}
-          className="w-16 h-6 px-1.5 rounded-md bg-paper-warm/70 border border-paper-deep/40 text-[10px] font-mono text-ink-soft outline-none focus:border-bamboo/40 shrink-0"
+          className="min-w-0 flex-1 h-6 px-2 rounded-md bg-paper-warm/70 border border-paper-deep/40 text-[12px] font-mono text-ink-soft outline-none focus:border-bamboo/40"
         />
         <button
           type="button"
@@ -859,10 +868,10 @@ function ColorRow({ label, value, onChange }: ColorRowProps) {
             setPickerOpen(false);
           }}
           disabled={!value}
-          className="w-6 h-6 flex items-center justify-center rounded-md text-[12px] leading-none text-ink-faint hover:text-red-400 hover:bg-paper-warm/70 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer shrink-0"
+          className="h-6 px-2 rounded-md border border-paper-deep/45 text-[11px] leading-none text-ink-faint hover:text-bamboo hover:bg-bamboo-mist/50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer whitespace-nowrap shrink-0"
           title={t("common.reset", { defaultValue: "恢复默认" })}
         >
-          ×
+          {t("common.default", { defaultValue: "默认" })}
         </button>
       </div>
       {pickerOpen && <InlineHexPicker color={colorValue || "#ffffff"} onChange={onChange} />}

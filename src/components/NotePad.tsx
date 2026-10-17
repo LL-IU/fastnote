@@ -433,6 +433,8 @@ export function NotePad({
     setContent,
     markDirty: () => setStatus("dirty"),
     onEnsureNoteSaved: ensureNoteSaved,
+    // 图片粘贴功能暂时停用（与主窗口保持一致）
+    disabled: true,
     onError: showToast,
     t,
   });

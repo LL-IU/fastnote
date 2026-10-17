@@ -647,6 +647,12 @@ fn copy_dir_recursive(from: &Path, to: &Path) -> Result<(), AppError> {
     Ok(())
 }
 
+fn count_files_in_dir(dir: &Path) -> usize {
+    fs::read_dir(dir)
+        .map(|entries| entries.flatten().filter(|entry| entry.path().is_file()).count())
+        .unwrap_or(0)
+}
+
 fn is_filesystem_root(path: &Path) -> bool {
     let path = path.to_string_lossy();
     let trimmed = path.trim_end_matches(['/', '\\']);
@@ -986,6 +992,47 @@ impl NoteStore {
 
         if remaining == 0 {
             let _ = fs::remove_dir(&dir);
+        }
+
+        Ok(removed)
+    }
+
+    /// 启动维护：清理图片目录中的孤儿数据。
+    /// - 笔记已不存在 → 删除整个 `images/<note_id>` 目录
+    /// - 笔记仍存在但内容已不再引用某张图 → 删除对应的图片文件
+    ///
+    /// 返回删除的图片文件数。
+    pub fn prune_unused_images(&self) -> Result<usize, AppError> {
+        let images_root = self.data_dir.join("images");
+        if !images_root.exists() {
+            return Ok(0);
+        }
+
+        let metadata = self.load_metadata()?;
+        let note_ids: Vec<&str> = metadata.notes.iter().map(|note| note.id.as_str()).collect();
+
+        let mut removed = 0usize;
+        for entry in fs::read_dir(&images_root)? {
+            let entry = entry?;
+            let dir = entry.path();
+            if !dir.is_dir() {
+                continue;
+            }
+            let note_id = entry.file_name().to_string_lossy().to_string();
+            if !note_ids.contains(&note_id.as_str()) {
+                removed += count_files_in_dir(&dir);
+                fs::remove_dir_all(&dir)?;
+                continue;
+            }
+            let Some(note) = metadata.notes.iter().find(|note| note.id == note_id) else {
+                continue;
+            };
+            let path = self.note_path_in_category(&note.file_name, &note.category);
+            // 读不到正文（文件缺失/损坏）时跳过，避免误删该笔记的全部图片
+            let Ok(content) = fs::read_to_string(&path) else {
+                continue;
+            };
+            removed += self.clean_unused_images(&note_id, &content)?.len();
         }
 
         Ok(removed)
@@ -2562,5 +2609,49 @@ mod tests {
             fs::read_to_string(export_path).expect("read exported markdown"),
             content
         );
+    }
+
+    #[test]
+    fn prunes_orphan_and_unreferenced_images() {
+        let store = test_store("prune-images");
+
+        let note = store
+            .create_note(SaveNoteRequest {
+                title: "图片测试".into(),
+                content: "hello".into(),
+                category: String::new(),
+            })
+            .expect("create note");
+
+        // 保存两张图，正文只引用其中一张
+        let kept = store
+            .save_image(&note.id, b"png-bytes", "png")
+            .expect("save kept image");
+        let stale = store
+            .save_image(&note.id, b"old-bytes", "png")
+            .expect("save stale image");
+        store
+            .update_note(
+                &note.id,
+                SaveNoteRequest {
+                    title: "图片测试".into(),
+                    content: format!("hello\n![]({kept})"),
+                    category: String::new(),
+                },
+            )
+            .expect("update note");
+
+        // 模拟一篇已删除笔记残留的图片目录
+        let orphan_dir = store.data_dir().join("images").join("missing-note");
+        fs::create_dir_all(&orphan_dir).expect("create orphan image dir");
+        fs::write(orphan_dir.join("x.png"), b"orphan").expect("write orphan image");
+
+        let removed = store.prune_unused_images().expect("prune images");
+
+        // 未被引用的图片 + 孤儿目录里的图片各一张
+        assert_eq!(removed, 2);
+        assert!(store.data_dir().join(&kept).exists());
+        assert!(!store.data_dir().join(&stale).exists());
+        assert!(!orphan_dir.exists());
     }
 }
