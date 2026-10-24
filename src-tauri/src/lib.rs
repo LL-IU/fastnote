@@ -4,7 +4,9 @@ pub mod locales;
 pub mod services;
 
 use locales::Locale;
-use services::notes::{default_store, AppConfig, AppError, Note, NoteMetadata, SaveNoteRequest};
+use services::notes::{
+    default_store, AppConfig, AppError, Note, NoteMetadata, NoteStore, SaveNoteRequest,
+};
 use std::{env, fs, io::Write, path::PathBuf};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -244,6 +246,20 @@ fn copy_background_image(_app: AppHandle, source_path: String) -> Result<String,
     })
 }
 
+/// 配置变化后清理旧背景图：仅当旧路径位于数据目录的 backgrounds/ 内、
+/// 且与新路径不同（清除或替换）时才删除。
+fn remove_stale_background(store: &NoteStore, previous: &AppConfig, next: &AppConfig) {
+    let old = previous.background_image_path.trim();
+    if old.is_empty() || old == next.background_image_path.trim() {
+        return;
+    }
+    let dir = store.data_dir().join("backgrounds");
+    let path = PathBuf::from(old);
+    if path.starts_with(&dir) && path.is_file() {
+        let _ = fs::remove_file(&path);
+    }
+}
+
 #[tauri::command]
 fn config_save(app: AppHandle, config: AppConfig) -> Result<AppConfig, AppError> {
     let store = default_store()?;
@@ -259,6 +275,9 @@ fn config_save(app: AppHandle, config: AppConfig) -> Result<AppConfig, AppError>
         }
     })?;
     let saved = store.save_config(config)?;
+    // 背景图被清除或替换时，删除 backgrounds 目录下的旧文件
+    // （只删数据目录内的副本，避免误删用户自己的图片）
+    remove_stale_background(&store, &previous, &saved);
     if let Err(error) = desktop::refresh_shell_state(&app, &saved) {
         eprintln!("failed to refresh desktop shell state: {error}");
     }
@@ -466,6 +485,8 @@ pub fn run() {
                 // 启动时清理图片残留：已删除笔记的图片目录、以及笔记内容里
                 // 已不再引用的图片文件（历史遗留的「图片删了文件还在」）
                 let _ = store.prune_unused_images();
+                // 启动时清理不再被配置引用的背景图副本
+                let _ = store.prune_unused_backgrounds();
             }
             desktop::setup_desktop(app)?;
             // 启动 Rust 端后台 WebDAV 同步轮询（仅启用时执行同步）

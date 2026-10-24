@@ -1038,6 +1038,33 @@ impl NoteStore {
         Ok(removed)
     }
 
+    /// 启动维护：清理 `backgrounds` 目录中不再被配置引用的背景图。
+    /// 返回删除的文件数。
+    pub fn prune_unused_backgrounds(&self) -> Result<usize, AppError> {
+        let dir = self.data_dir.join("backgrounds");
+        if !dir.exists() {
+            return Ok(0);
+        }
+        let config = self.load_config()?;
+        let current = PathBuf::from(config.background_image_path.trim());
+
+        let mut removed = 0usize;
+        for entry in fs::read_dir(&dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            if !current.as_os_str().is_empty() && paths_refer_to_same_entry(&path, &current) {
+                continue;
+            }
+            fs::remove_file(&path)?;
+            removed += 1;
+        }
+
+        Ok(removed)
+    }
+
     pub fn import_markdown_file(&self, path: &Path, category: &str) -> Result<Note, AppError> {
         if !is_markdown_path(path) {
             return Err(AppError::unsupported_file());
@@ -2609,6 +2636,39 @@ mod tests {
             fs::read_to_string(export_path).expect("read exported markdown"),
             content
         );
+    }
+
+    #[test]
+    fn prunes_unreferenced_backgrounds() {
+        let store = test_store("prune-backgrounds");
+        let dir = store.data_dir().join("backgrounds");
+        fs::create_dir_all(&dir).expect("create backgrounds dir");
+        let kept = dir.join("bg-kept.png");
+        let stale = dir.join("bg-stale.png");
+        fs::write(&kept, b"kept").expect("write kept background");
+        fs::write(&stale, b"stale").expect("write stale background");
+
+        let mut config = store.load_config().expect("load config");
+        config.background_image_path = kept.to_string_lossy().to_string();
+        store.save_config(config).expect("save config");
+
+        let removed = store
+            .prune_unused_backgrounds()
+            .expect("prune backgrounds");
+        assert_eq!(removed, 1);
+        assert!(kept.exists());
+        assert!(!stale.exists());
+
+        // 清除背景后，所有副本都应被清理
+        let mut config = store.load_config().expect("load config");
+        config.background_image_path = String::new();
+        store.save_config(config).expect("save config");
+
+        let removed = store
+            .prune_unused_backgrounds()
+            .expect("prune backgrounds");
+        assert_eq!(removed, 1);
+        assert!(!kept.exists());
     }
 
     #[test]
